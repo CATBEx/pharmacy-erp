@@ -424,6 +424,50 @@ and built together on "Implement":
 auto-generated and manually-typed paths). Delivered to the user's local folder, committed, and
 pushed — not yet deployed to the VPS as of this write-up.
 
+## Third bug-fix round — done 2026-09-02
+Four more reports (A1–A4), logged as bugs #9–#12 in `Bugs.md` and built together on "Implement".
+The backbone of three of the four is one shared backend change:
+
+**Catalog enrichment, one join serving three pages** — `ProductsService.listWithStock()` now
+left-joins `medicineMaster` + `manufacturers` (same join `MedicineMasterService.search()` already
+does), adding `genericName`/`form`/`manufacturerName` to every `/products` response — `null` for a
+product with no catalog link. Since Products, Purchases, and Sell all already load the full
+`/products` list client-side, all three pages picked up generic name and manufacturer for free with
+this one backend change — no new endpoint, no per-page API call.
+
+- **#9 Purchase Amount, not per-unit price** — `CreatePurchaseDto.purchasePrice` renamed
+  `purchaseAmount` (total paid for the batch); `PurchasesService.create()` divides by qty and
+  stores the per-unit cost server-side, same column/meaning as before so FIFO/profit code needed no
+  changes. Frontend form: "Purchase price (per unit)" → "Purchase Amount (total paid)", with a live
+  "≈ X.XX per piece" hint. Known, accepted rounding artifact: dividing an odd total by qty and
+  storing at 2 decimal places can be a poisha under the typed amount — standard for retail
+  software, not worth a higher-precision column unless it turns out to matter.
+- **#10 Products page: search + detail** — new search box (client-side, matches name/generic/
+  manufacturer); table gained Generic, Manufacturer, Pcs/Strip, and Strips/Box columns (the pack
+  size was already returned, just not shown as its own column before — only baked into the "On
+  hand" breakdown).
+- **#11 Purchases history: search + detail** — same shape as #10, applied to the read-only history
+  table (distinct from the Record Purchase form's product picker, which already had search from bug
+  #3): search box + Generic/Manufacturer columns.
+- **#12 Sell (POS): full detail + total price** — search suggestions and cart rows now show
+  generic/manufacturer as a subtitle. `SaleItemDto.salePrice` → `saleAmount` (total for that cart
+  line); `SalesService.checkout()` computes the per-line `salePrice` the same way as #9, **but**
+  computes the invoice's `totalAmount` as the exact sum of the typed line amounts rather than
+  `qty × rounded-per-unit` — so what the salesman types across all lines is exactly what the invoice
+  says, penny for penny; only the internal per-unit cost/profit bookkeeping carries the same
+  sub-cent rounding as #9. Side effect: removing the now-redundant "Line total" column (Total price
+  *is* the line total) made the cart table one column narrower, which also means it no longer needs
+  horizontal scroll at 390px — incidentally fixes the phone-width scroll note flagged in the
+  previous round.
+
+**Verified**: both workspaces typecheck/build clean. #9 and #12's amount→per-unit math checked via
+direct API calls (#9: qty=3, amount="1000" → stored per-unit "333.33"; #12: qty=3, saleAmount="100"
+→ invoice totalAmount "100.00" exactly, stored line sale_price "33.33", checked directly against the
+DB). #10–#12's search/detail UI checked via browser automation (including a generic-name search
+actually matching a product by brand) and 390px screenshots of all three changed pages. Delivered to
+the user's local folder, committed, and pushed — not yet deployed to the VPS as of this write-up
+(same as the second round above — both rounds are outstanding on the VPS as of now).
+
 ## Next up
 - **Off-server backups** — raised with the user, not yet decided/built (see Phase 6 above).
 - **GitHub token rotation** — a fresh PAT was issued and used for both the local push and the VPS's

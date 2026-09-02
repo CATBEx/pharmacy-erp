@@ -405,3 +405,149 @@ optional exactly as it is now — no UI change needed there, just don't force th
 
 ---
 
+## 9. 🟢 Purchases: enter total amount paid, not per-unit price
+
+**Reported:** the "Purchase price (per unit)" field should instead be "Purchase Amount" — the
+total paid for the whole batch — with the backend working out the per-unit cost.
+
+**Confirmed in code**: `CreatePurchaseDto.purchasePrice` is per-unit (`numeric(12,2)`, comment says
+"per unit"), and `PurchasesPage.tsx`'s form collects it directly that way. Makes sense as the
+*stored* value (FIFO cost allocation and dashboard profit math both key off "cost per unit of this
+batch"), but it's the wrong thing to make the pharmacy admin do the dividing for — if 3 boxes of
+something cost ৳1,500 total, they shouldn't have to first work out ৳/piece by hand.
+
+**Fix (not yet applied):**
+- Frontend: replace "Purchase price (per unit)" with **"Purchase Amount"** (what was actually
+  paid, total).
+- Backend (`PurchasesService.create()`): compute `purchasePrice = (amount / qty).toFixed(2)`
+  server-side (never trust client-computed math, same principle used for subscription-expiry dates
+  elsewhere) and store that, same as today — no schema change, `purchases.purchasePrice` keeps
+  meaning exactly what it always has, so FIFO/profit code downstream needs zero changes.
+- DTO: rename `purchasePrice` → `purchaseAmount` on `CreatePurchaseDto` (total, still a validated
+  numeric string).
+
+**Honest caveat — worth knowing before this ships:** dividing a total by an odd quantity can leave
+a remainder (e.g. ৳1,000 ÷ 3 pcs = ৳333.333...). Stored per-unit is rounded to 2 decimal places
+(৳333.33), so recomputing qty × stored-per-unit lands 1 poisha under what was actually paid. That's
+inherent to storing a per-unit cost at 2 decimal places at all — not something this change
+introduces, but worth flagging since it'll be a little more *visible* now that "the total" is what
+the admin actually typed. In practice this is a sub-cent rounding artifact per batch, standard in
+retail software, and not worth a bigger schema change (e.g. a higher-precision column) unless it
+turns out to matter in practice.
+
+**Built & verified:** `CreatePurchaseDto.purchaseAmount` (total), `PurchasesService.create()`
+computes `purchasePrice = (Number(amount) / qty).toFixed(2)` before storing. Confirmed via direct
+API call: qty=3, amount="1000" → stored per-unit `333.33`. Frontend form now shows "Purchase
+Amount (total paid)" with a live "≈ X.XX per piece" hint underneath.
+
+---
+
+## 10. 🟢 Products page needs a search box and more catalog detail per row
+
+**Reported:** the Products list should have a search box, and show Brand/Generic/Pharma
+(manufacturer) plus Strip-per-box/Pcs-per-strip per row — "what do you think?"
+
+**Confirmed in code**: `ProductsPage.tsx`'s table has no search/filter at all (just lists every
+product, unusable once a pharmacy has more than a screenful — the same class of problem bug #3
+already fixed for the Purchases product picker). `ProductsService.listWithStock()` also doesn't
+join `medicine_master`/`manufacturers`, so generic name/manufacturer aren't even in the API
+response yet, even though every catalog-linked product already has a `medicineMasterId` pointing
+at that data — and `piecesPerStrip`/`stripsPerBox` ARE already returned, just not shown as their
+own columns in the table (only baked into the "On hand" breakdown).
+
+**My take, since you asked**: yes, worth doing — a pharmacy stocking a few hundred SKUs needs to
+find one fast, and generic name matters for that in practice (staff often know "paracetamol" before
+they know which of the 5 brands of it they carry). I'd scope it as:
+
+**Fix (not yet applied):**
+- `ProductsService.listWithStock()`: left-join `medicineMaster` + `manufacturers` (same join
+  `MedicineMasterService.search()` already does), add `genericName`/`form`/`manufacturerName` to
+  the response — `null` for a product not linked to the catalog (typed in fresh, no `medicineMasterId`).
+  This is the shared groundwork bug #11 (Purchases history) also needs, so it's one backend change
+  serving both.
+- `ProductsPage.tsx`: add a search input above the table, client-side filtering across name **and**
+  the new generic/manufacturer fields (list is already loaded in full; no new endpoint needed, same
+  pattern as the Purchases/POS product pickers).
+- Table gains **Generic** and **Manufacturer** columns; **Pcs/Strip** and **Strips/Box** shown as
+  their own columns too (currently only visible baked into "On hand"'s breakdown, not as the
+  product's actual configured pack size). Table's already wrapped in `.table-scroll`, so more
+  columns just means more horizontal scroll on a phone — consistent with how every other data table
+  in the app already handles width.
+
+**Open question**: "etc" in the report — anything else you want on this row (e.g. Form/dosage type,
+already available from the same join) or is Generic + Manufacturer + pack size the right set?
+
+**Built & verified:** `listWithStock()` left-joins `medicineMaster`/`manufacturers`, returning
+`genericName`/`form`/`manufacturerName` (every page loading `/products` gets this automatically —
+Products, Purchases, Sell). Products page gained a search box (filters name/generic/manufacturer)
+and Generic/Manufacturer/Pcs-per-Strip/Strips-per-Box columns. Confirmed via browser automation:
+searching "Paracetamol" (a generic name, not a product name) correctly matches Napa; a no-match
+query shows the right empty state; renders cleanly at 390px (table scrolls horizontally, same
+established pattern as every other data table).
+
+---
+
+## 11. 🟢 Purchases history also needs a search box and more detail
+
+**Reported:** the Purchases (stock-in) history table should also show more detail and have a
+search box.
+
+**Confirmed in code**: `PurchasesPage.tsx`'s history table (Product/Qty/Unit price/Batch/Date) has
+no search/filter — note this is different from the *Record Purchase* form's product picker (bug #3
+already added search there); this is about the read-only history list below it, which has none.
+
+**Fix (not yet applied)**, building on bug #10's backend groundwork (enriched `/products` response
+— `PurchasesPage.tsx` already loads the full product list, so no new API call needed):
+- Add a search input above the history table, filtering by matching the query against each
+  purchase's linked product's name/generic/manufacturer (via the existing `productById()` lookup).
+- Add **Generic** and **Manufacturer** columns to the history table alongside the existing
+  Product/Qty/Unit price/Batch/Date, using the same enriched product data.
+
+**Built & verified:** search box added above the history table, filtering via the existing
+`productById()` lookup against name/generic/manufacturer; Generic/Manufacturer columns added.
+Confirmed present via browser automation and the 390px screenshot (table scrolls horizontally,
+same as every other data table).
+
+---
+
+## 12. 🟢 Sell (POS): show full product detail, and take total price instead of per-unit
+
+**Reported:** two asks — (1) the Sales page should include all details [of the product being sold],
+and (2) the salesman should type the **total price** for that line item, not a per-unit price.
+
+**Part 1 — product detail.** `SalesPOS.tsx`'s search-suggestion dropdown currently shows only the
+product name and stock-left; the cart line shows only the name. Same fix as bug #10: once
+`/products` returns generic/manufacturer, show them as a muted subtitle under the product name in
+both the search suggestions and each cart row (mirrors how the Add-Product catalog search already
+displays generic/strength/form/manufacturer under each result) — a salesman serving a customer who
+asks for "the Square one" or "the paracetamol, not the ibuprofen" can actually tell products apart.
+
+**Part 2 — total price instead of per-unit.** `SaleItemDto.salePrice` is per-unit; the POS cart's
+"Price/unit" field collects it directly that way, same shape of problem as bug #9's purchase price.
+
+**Fix (not yet applied):**
+- Frontend: cart row's "Price/unit" input becomes **"Total price"** for that line (what the
+  customer's actually being charged for that item, whatever quantity is in the row) — line total
+  display becomes just an echo of what was typed rather than a separate qty×price computation.
+- DTO: `SaleItemDto.salePrice` → `saleAmount` (total for the line, still a validated numeric
+  string).
+- `SalesService.checkout()`: compute `salePrice = (amount / qty).toFixed(2)` server-side per line
+  (stored exactly as today — FIFO/profit code unchanged) **but** compute the invoice's
+  `totalAmount` as the exact **sum of the typed line amounts**, not `qty × rounded-per-unit`. This
+  sidesteps bug #9's rounding caveat at the level customers actually see (the receipt/invoice
+  total): what the salesman typed across all lines is exactly what the invoice says, penny for
+  penny — only the internal per-unit cost/profit bookkeeping carries the sub-cent rounding, same as
+  every other retail POS.
+
+**Built & verified:** `SaleItemDto.saleAmount` (total per line); `SalesService.checkout()` computes
+`salePrice = (amount/qty).toFixed(2)` for FIFO/profit storage, while the invoice's `totalAmount` is
+the exact sum of typed amounts. Confirmed via direct API call: qty=3, saleAmount="100" → invoice
+`totalAmount` "100.00" exactly, stored line `sale_price` "33.33" (checked directly against the DB).
+Frontend: search suggestions and cart rows now show generic/manufacturer as a subtitle; "Price/unit"
+column renamed "Total price"; the separate "Line total" column was removed since it's now identical
+to what's typed (a nice side-effect: the cart table is one column narrower, which also means it no
+longer needs horizontal scroll at 390px — cleanly fixes the phone-width scroll note from the
+previous round). Verified via browser automation and a 390px screenshot.
+
+---
+

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { api } from '../../api/client';
 import { formatStock, sortedSuggestions, type PackSizeSuggestion } from '../../utils/packSize';
 
@@ -11,6 +11,11 @@ interface Product {
   reorderLevel: number;
   active: boolean;
   medicineMasterId: number | null;
+  // Generic/manufacturer come from the shared catalog via medicineMasterId -- null for a product
+  // typed in fresh with no catalog link (bug #10).
+  genericName: string | null;
+  form: string | null;
+  manufacturerName: string | null;
   qtyOnHand: number;
 }
 
@@ -25,6 +30,16 @@ interface MasterHit {
 
 export function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
+  // Search box over the already-loaded product list (bug #10) -- matches name, generic name, and
+  // manufacturer, since staff often know the drug before they know which brand they carry.
+  const [query, setQuery] = useState('');
+  const filteredProducts = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return products;
+    return products.filter((p) =>
+      [p.name, p.genericName, p.manufacturerName].some((f) => f?.toLowerCase().includes(q)),
+    );
+  }, [query, products]);
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState('');
   // Unit: dropdown of common presets + a "Custom…" choice that reveals a free-text input (bug #6).
@@ -276,32 +291,48 @@ export function ProductsPage() {
         </form>
       )}
 
+      <input
+        placeholder="Search by name, generic, or manufacturer…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        autoComplete="off"
+        style={{ width: '100%', marginBottom: 12 }}
+      />
+
       <div className="card" style={{ padding: 0 }}>
         <div className="table-scroll">
           <table>
             <thead>
               <tr>
                 <th>Name</th>
+                <th>Generic</th>
+                <th>Manufacturer</th>
                 <th>Unit</th>
+                <th>Pcs/Strip</th>
+                <th>Strips/Box</th>
                 <th>On hand</th>
                 <th>Reorder level</th>
               </tr>
             </thead>
             <tbody>
-              {products.map((p) => (
+              {filteredProducts.map((p) => (
                 <tr key={p.id}>
                   <td>{p.name}</td>
+                  <td>{p.genericName ?? '—'}</td>
+                  <td>{p.manufacturerName ?? '—'}</td>
                   <td>{p.unit}</td>
+                  <td>{p.piecesPerStrip}</td>
+                  <td>{p.stripsPerBox}</td>
                   <td style={{ color: p.qtyOnHand <= p.reorderLevel ? 'var(--danger)' : undefined, fontWeight: 600 }}>
                     {formatStock(p.qtyOnHand, p.piecesPerStrip, p.stripsPerBox, p.unit)}
                   </td>
                   <td>{p.reorderLevel}</td>
                 </tr>
               ))}
-              {products.length === 0 && (
+              {filteredProducts.length === 0 && (
                 <tr>
-                  <td colSpan={4} style={{ color: 'var(--text-muted)' }}>
-                    No products yet.
+                  <td colSpan={8} style={{ color: 'var(--text-muted)' }}>
+                    {products.length === 0 ? 'No products yet.' : 'No products match your search.'}
                   </td>
                 </tr>
               )}

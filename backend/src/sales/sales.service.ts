@@ -42,9 +42,15 @@ export class SalesService {
       products.set(item.productId, product.name);
     }
 
+    // dto.items[].saleAmount is the total charged for that line (bug #12), not per-unit. The
+    // invoice's totalAmount is the exact sum of what was actually typed -- never recomputed as
+    // qty x a rounded per-unit price -- so what the salesman entered across all lines is exactly
+    // what the invoice says, penny for penny. Only the per-line stored salePrice (used for FIFO
+    // cost/profit bookkeeping, never shown as "the total") carries the sub-cent rounding that
+    // comes from storing a per-unit cost at 2 decimal places at all -- see Bugs.md #9/#12.
     let totalAmount = 0;
     for (const item of dto.items) {
-      totalAmount += item.qty * Number(item.salePrice);
+      totalAmount += Number(item.saleAmount);
     }
 
     return this.db.transaction(async (tx) => {
@@ -54,6 +60,7 @@ export class SalesService {
         .returning();
 
       for (const item of dto.items) {
+        const salePrice = (Number(item.saleAmount) / item.qty).toFixed(2);
         const [line] = await tx
           .insert(sales)
           .values({
@@ -61,7 +68,7 @@ export class SalesService {
             invoiceId: invoice.id,
             productId: item.productId,
             qty: item.qty,
-            salePrice: item.salePrice,
+            salePrice,
           })
           .returning();
 

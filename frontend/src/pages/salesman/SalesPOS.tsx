@@ -9,20 +9,27 @@ interface Product {
   piecesPerStrip: number;
   stripsPerBox: number;
   qtyOnHand: number;
+  // From the shared catalog via medicineMasterId -- null for a product with no catalog link
+  // (bug #12) -- shown so a salesman can tell "the Square one" from "the Beximco one".
+  genericName: string | null;
+  manufacturerName: string | null;
 }
 
 interface CartLine {
   productId: number;
   name: string;
+  detail: string; // generic · manufacturer, for display only
   unit: string;
   qtyOnHand: number;
   piecesPerStrip: number;
   // Piece/Strip only here (not Box) -- a whole box is never sold to a walk-in customer, that
-  // level only matters at stock-in (see PurchasesPage). salePrice stays price-PER-PIECE either
-  // way, unchanged from before this feature -- only how the quantity is entered changes.
+  // level only matters at stock-in (see PurchasesPage).
   unitMode: 'piece' | 'strip';
   count: number; // amount typed, in unitMode's unit
-  salePrice: string;
+  // Total price charged for this line (bug #12), not per-unit -- the backend divides by qty and
+  // stores the per-unit sale price for FIFO/profit bookkeeping; this is simply what the customer
+  // is being charged for this item, whatever quantity is in the row.
+  saleAmount: string;
 }
 
 function lineQty(line: CartLine) {
@@ -60,7 +67,7 @@ export function SalesPOS() {
     return products.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 8);
   }, [query, products]);
 
-  const total = cart.reduce((sum, line) => sum + lineQty(line) * (Number(line.salePrice) || 0), 0);
+  const total = cart.reduce((sum, line) => sum + (Number(line.saleAmount) || 0), 0);
 
   function addToCart(p: Product) {
     setError(null);
@@ -78,12 +85,13 @@ export function SalesPOS() {
         {
           productId: p.id,
           name: p.name,
+          detail: [p.genericName, p.manufacturerName].filter(Boolean).join(' · '),
           unit: p.unit,
           qtyOnHand: p.qtyOnHand,
           piecesPerStrip: p.piecesPerStrip,
           unitMode,
           count: 1,
-          salePrice: '',
+          saleAmount: '',
         },
       ];
     });
@@ -118,15 +126,15 @@ export function SalesPOS() {
   async function completeSale() {
     setError(null);
     if (cart.length === 0) return;
-    const missingPrice = cart.find((l) => !l.salePrice || Number(l.salePrice) <= 0);
+    const missingPrice = cart.find((l) => !l.saleAmount || Number(l.saleAmount) <= 0);
     if (missingPrice) {
-      setError(`Enter a sale price for "${missingPrice.name}"`);
+      setError(`Enter a total price for "${missingPrice.name}"`);
       return;
     }
     setSaving(true);
     try {
       await api.post('/sales', {
-        items: cart.map((l) => ({ productId: l.productId, qty: lineQty(l), salePrice: l.salePrice })),
+        items: cart.map((l) => ({ productId: l.productId, qty: lineQty(l), saleAmount: l.saleAmount })),
       });
       setSuccess(`Sale completed — ${total.toFixed(2)} total`);
       setCart([]);
@@ -169,11 +177,19 @@ export function SalesPOS() {
                   borderRadius: 6,
                   display: 'flex',
                   justifyContent: 'space-between',
+                  gap: 10,
                   fontSize: 14,
                 }}
               >
-                <span>{p.name}</span>
-                <span style={{ color: p.qtyOnHand <= 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
+                <span>
+                  <span>{p.name}</span>
+                  {(p.genericName || p.manufacturerName) && (
+                    <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                      {[p.genericName, p.manufacturerName].filter(Boolean).join(' · ')}
+                    </div>
+                  )}
+                </span>
+                <span style={{ color: p.qtyOnHand <= 0 ? 'var(--danger)' : 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                   {formatStock(p.qtyOnHand, p.piecesPerStrip, p.stripsPerBox, p.unit)} left
                 </span>
               </div>
@@ -189,15 +205,17 @@ export function SalesPOS() {
               <tr>
                 <th>Product</th>
                 <th style={{ width: 90 }}>Qty</th>
-                <th style={{ width: 120 }}>Price/unit</th>
-                <th style={{ width: 90 }}>Line total</th>
+                <th style={{ width: 120 }}>Total price</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {cart.map((line) => (
                 <tr key={line.productId}>
-                  <td>{line.name}</td>
+                  <td>
+                    <div>{line.name}</div>
+                    {line.detail && <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{line.detail}</div>}
+                  </td>
                   <td>
                     {line.piecesPerStrip > 1 ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -251,13 +269,12 @@ export function SalesPOS() {
                       type="text"
                       inputMode="decimal"
                       placeholder="0.00"
-                      value={line.salePrice}
-                      onChange={(e) => updateLine(line.productId, { salePrice: e.target.value })}
+                      value={line.saleAmount}
+                      onChange={(e) => updateLine(line.productId, { saleAmount: e.target.value })}
                       onKeyDown={handlePriceKeyDown}
                       style={{ width: 100 }}
                     />
                   </td>
-                  <td>{(lineQty(line) * (Number(line.salePrice) || 0)).toFixed(2)}</td>
                   <td>
                     <button className="btn-secondary btn" onClick={() => removeLine(line.productId)} style={{ padding: '4px 10px' }}>
                       ✕
@@ -267,7 +284,7 @@ export function SalesPOS() {
               ))}
               {cart.length === 0 && (
                 <tr>
-                  <td colSpan={5} style={{ color: 'var(--text-muted)' }}>
+                  <td colSpan={4} style={{ color: 'var(--text-muted)' }}>
                     Search above to add items.
                   </td>
                 </tr>

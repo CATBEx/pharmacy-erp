@@ -8,6 +8,8 @@ export class SaleItemDto {
   @IsPositive()
   qty!: number;
 
+  // Total charged for this line item (bug #12), not per-unit -- the checkout service divides by
+  // qty and stores the per-unit sale price, same as before.
   @IsNumberString()
-  salePrice!: string;
+  saleAmount!: string;
 }

@@ -12,9 +12,11 @@ export class CreatePurchaseDto {
   @IsPositive()
   qty!: number;
 
-  // string so we don't lose precision to floating point; validated as a numeric string
+  // Total paid for the whole batch (bug #9), not per-unit -- the service divides by qty and
+  // stores the per-unit cost, same as before. String so we don't lose precision to floating
+  // point; validated as a numeric string.
   @IsNumberString()
-  purchasePrice!: string;
+  purchaseAmount!: string;
 
   @IsOptional()
   @IsString()

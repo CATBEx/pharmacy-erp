@@ -46,6 +46,12 @@ export class PurchasesService {
       await this.suppliersService.assertBelongsToPharmacy(dto.supplierId, pharmacyId);
     }
 
+    // dto.purchaseAmount is the total paid for the whole batch (bug #9) -- divide by qty here,
+    // server-side, rather than trusting client-computed math, and store the per-unit cost exactly
+    // as purchasePrice always has (FIFO allocation / dashboard profit math read this column and
+    // need no changes). Rounds to the nearest poisha; see Bugs.md #9 for the rounding caveat.
+    const purchasePrice = (Number(dto.purchaseAmount) / dto.qty).toFixed(2);
+
     const [purchase] = await this.db
       .insert(purchases)
       .values({
@@ -54,7 +60,7 @@ export class PurchasesService {
         supplierId: dto.supplierId,
         qty: dto.qty,
         qtyRemaining: dto.qty, // full batch is unsold at the moment it's recorded
-        purchasePrice: dto.purchasePrice,
+        purchasePrice,
         batchNumber: dto.batchNumber?.trim() || generateBatchNumber(),
         expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : undefined,
         createdByUserId: userId,

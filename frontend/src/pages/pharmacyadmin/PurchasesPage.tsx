@@ -8,6 +8,9 @@ interface Product {
   unit: string;
   piecesPerStrip: number;
   stripsPerBox: number;
+  // From the shared catalog via medicineMasterId -- null for a product with no catalog link.
+  genericName: string | null;
+  manufacturerName: string | null;
 }
 interface Supplier {
   id: number;
@@ -28,7 +31,9 @@ export function PurchasesPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ supplierId: '', purchasePrice: '', batchNumber: '' });
+  // purchaseAmount is the TOTAL paid for the whole batch (bug #9), not per-unit -- the backend
+  // divides by qty and stores the per-unit cost, same as it always has internally.
+  const [form, setForm] = useState({ supplierId: '', purchaseAmount: '', batchNumber: '' });
 
   // Searchable product picker (type to filter the pharmacy's own product list, click/pick to
   // select) -- replaces the old plain <select>, which was unusable once a pharmacy has more
@@ -46,6 +51,10 @@ export function PurchasesPage() {
 
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Search box over the purchase history (bug #11) -- matches the linked product's name/generic/
+  // manufacturer, same fields the Products page search matches.
+  const [historyQuery, setHistoryQuery] = useState('');
 
   async function loadAll() {
     const [p, prod, sup] = await Promise.all([
@@ -71,6 +80,16 @@ export function PurchasesPage() {
     if (!q) return [];
     return products.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 8);
   }, [productQuery, products]);
+
+  const filteredPurchases = useMemo(() => {
+    const q = historyQuery.trim().toLowerCase();
+    if (!q) return purchases;
+    return purchases.filter((p) => {
+      const prod = productById(p.productId);
+      return [prod?.name, prod?.genericName, prod?.manufacturerName].some((f) => f?.toLowerCase().includes(q));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyQuery, purchases, products]);
 
   function pickProduct(p: Product) {
     setSelectedProduct(p);
@@ -98,10 +117,10 @@ export function PurchasesPage() {
         productId: selectedProduct.id,
         supplierId: form.supplierId ? Number(form.supplierId) : undefined,
         qty: totalPieces,
-        purchasePrice: form.purchasePrice,
+        purchaseAmount: form.purchaseAmount,
         batchNumber: form.batchNumber || undefined,
       });
-      setForm({ supplierId: '', purchasePrice: '', batchNumber: '' });
+      setForm({ supplierId: '', purchaseAmount: '', batchNumber: '' });
       setProductQuery('');
       setSelectedProduct(null);
       setBox('');
@@ -151,13 +170,20 @@ export function PurchasesPage() {
                     onClick={() => pickProduct(p)}
                     style={{ padding: '8px 10px', cursor: 'pointer', borderRadius: 6, fontSize: 13 }}
                   >
-                    {p.name}
+                    <div>{p.name}</div>
+                    {(p.genericName || p.manufacturerName) && (
+                      <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                        {[p.genericName, p.manufacturerName].filter(Boolean).join(' · ')}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
             )}
             {selectedProduct && (
               <span style={{ fontSize: 12, color: 'var(--success)' }}>
+                {[selectedProduct.genericName, selectedProduct.manufacturerName].filter(Boolean).join(' · ')}
+                {(selectedProduct.genericName || selectedProduct.manufacturerName) && ' — '}
                 {selectedProduct.piecesPerStrip > 1 || selectedProduct.stripsPerBox > 1
                   ? `${selectedProduct.piecesPerStrip} pcs/strip, ${selectedProduct.stripsPerBox} strips/box`
                   : 'Not tracked in packs — enter Pcs'}
@@ -205,20 +231,29 @@ export function PurchasesPage() {
           </div>
 
           <div className="form-row">
-            <label>Purchase price (per unit)</label>
+            <label>Purchase Amount (total paid)</label>
             <input
               type="text"
               inputMode="decimal"
               required
-              placeholder="e.g. 1.20"
-              value={form.purchasePrice}
-              onChange={(e) => setForm({ ...form, purchasePrice: e.target.value })}
+              placeholder="e.g. 1500.00"
+              value={form.purchaseAmount}
+              onChange={(e) => setForm({ ...form, purchaseAmount: e.target.value })}
             />
+            {totalPieces > 0 && Number(form.purchaseAmount) > 0 && (
+              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, marginBottom: 0 }}>
+                ≈ {(Number(form.purchaseAmount) / totalPieces).toFixed(2)} per piece
+              </p>
+            )}
           </div>
 
           <div className="form-row">
             <label>Batch number (optional)</label>
-            <input value={form.batchNumber} onChange={(e) => setForm({ ...form, batchNumber: e.target.value })} />
+            <input
+              value={form.batchNumber}
+              onChange={(e) => setForm({ ...form, batchNumber: e.target.value })}
+              placeholder="Auto-generated if left blank"
+            />
           </div>
 
           {error && <p className="error-text">{error}</p>}
@@ -228,12 +263,22 @@ export function PurchasesPage() {
         </form>
       )}
 
+      <input
+        placeholder="Search history by product, generic, or manufacturer…"
+        value={historyQuery}
+        onChange={(e) => setHistoryQuery(e.target.value)}
+        autoComplete="off"
+        style={{ width: '100%', marginBottom: 12 }}
+      />
+
       <div className="card" style={{ padding: 0 }}>
         <div className="table-scroll">
           <table>
             <thead>
               <tr>
                 <th>Product</th>
+                <th>Generic</th>
+                <th>Manufacturer</th>
                 <th>Qty</th>
                 <th>Unit price</th>
                 <th>Batch</th>
@@ -241,11 +286,13 @@ export function PurchasesPage() {
               </tr>
             </thead>
             <tbody>
-              {purchases.map((p) => {
+              {filteredPurchases.map((p) => {
                 const prod = productById(p.productId);
                 return (
                   <tr key={p.id}>
                     <td>{prod?.name ?? `#${p.productId}`}</td>
+                    <td>{prod?.genericName ?? '—'}</td>
+                    <td>{prod?.manufacturerName ?? '—'}</td>
                     <td>{prod ? formatStock(p.qty, prod.piecesPerStrip, prod.stripsPerBox, prod.unit) : p.qty}</td>
                     <td>{p.purchasePrice}</td>
                     <td>{p.batchNumber || '—'}</td>
@@ -253,10 +300,10 @@ export function PurchasesPage() {
                   </tr>
                 );
               })}
-              {purchases.length === 0 && (
+              {filteredPurchases.length === 0 && (
                 <tr>
-                  <td colSpan={5} style={{ color: 'var(--text-muted)' }}>
-                    No stock recorded yet.
+                  <td colSpan={7} style={{ color: 'var(--text-muted)' }}>
+                    {purchases.length === 0 ? 'No stock recorded yet.' : 'No purchases match your search.'}
                   </td>
                 </tr>
               )}

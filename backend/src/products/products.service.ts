@@ -2,7 +2,7 @@ import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module.js';
 import type { Database } from '../db/client.js';
-import { products, purchases } from '../db/schema.js';
+import { products, purchases, medicineMaster, manufacturers } from '../db/schema.js';
 import type { CreateProductDto } from './dto/create-product.dto.js';
 import type { UpdateProductDto } from './dto/update-product.dto.js';
 
@@ -12,6 +12,13 @@ export class ProductsService {
 
   // qtyOnHand is derived live from purchase batches (sum of what hasn't been sold yet),
   // never stored redundantly -- that's what keeps stock always correct after every sale/purchase.
+  //
+  // Also left-joins the shared catalog (medicine_master/manufacturers) for products linked to it
+  // via medicineMasterId -- genericName/form/manufacturerName come back null for a product typed
+  // in fresh with no catalog link. Every page that loads /products (Products, Purchases, Sell)
+  // gets this for free, so a search box or extra detail column on any of them needs no new
+  // endpoint (bugs #10/#11/#12) -- same "one enrichment, every consumer benefits" shape as the
+  // pack-size suggestion feature.
   listWithStock(pharmacyId: number) {
     return this.db
       .select({
@@ -23,12 +30,17 @@ export class ProductsService {
         reorderLevel: products.reorderLevel,
         active: products.active,
         medicineMasterId: products.medicineMasterId,
+        genericName: medicineMaster.genericName,
+        form: medicineMaster.form,
+        manufacturerName: manufacturers.name,
         qtyOnHand: sql<number>`coalesce(sum(${purchases.qtyRemaining}), 0)::int`,
       })
       .from(products)
       .leftJoin(purchases, eq(purchases.productId, products.id))
+      .leftJoin(medicineMaster, eq(medicineMaster.id, products.medicineMasterId))
+      .leftJoin(manufacturers, eq(manufacturers.id, medicineMaster.manufacturerId))
       .where(eq(products.pharmacyId, pharmacyId))
-      .groupBy(products.id)
+      .groupBy(products.id, medicineMaster.genericName, medicineMaster.form, manufacturers.name)
       .orderBy(products.name);
   }
 
