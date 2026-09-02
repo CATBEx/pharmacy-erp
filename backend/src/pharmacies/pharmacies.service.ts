@@ -1,5 +1,6 @@
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { and, eq, lte } from 'drizzle-orm';
 import * as bcrypt from 'bcryptjs';
 import { randomInt } from 'node:crypto';
 import { DB } from '../db/db.module.js';
@@ -29,6 +30,8 @@ function generatePassword() {
 
 @Injectable()
 export class PharmaciesService {
+  private readonly logger = new Logger(PharmaciesService.name);
+
   constructor(@Inject(DB) private readonly db: Database) {}
 
   async list() {
@@ -74,11 +77,21 @@ export class PharmaciesService {
   }
 
   async updateSubscription(id: number, dto: UpdateSubscriptionDto) {
+    // `days` is the normal path from the super-admin panel: "activate for 7/30/365
+    // days" computes the expiry server-side (never trust a client-computed date).
+    // `expiry` stays as an escape hatch for setting an exact date directly. Neither
+    // given -> no expiry (matches "trial"/"inactive", or "active" with no auto-cutoff).
+    const expiry = dto.days
+      ? new Date(Date.now() + dto.days * 24 * 60 * 60 * 1000)
+      : dto.expiry
+        ? new Date(dto.expiry)
+        : null;
+
     const [pharmacy] = await this.db
       .update(pharmacies)
       .set({
         subscriptionStatus: dto.status,
-        subscriptionExpiry: dto.expiry ? new Date(dto.expiry) : null,
+        subscriptionExpiry: expiry,
       })
       .where(eq(pharmacies.id, id))
       .returning();
@@ -87,5 +100,23 @@ export class PharmaciesService {
       throw new NotFoundException('Pharmacy not found');
     }
     return { ...pharmacy, code: pharmacyCode(pharmacy.id) };
+  }
+
+  // Auto-deactivation for time-boxed subscriptions: runs every 10 minutes and flips
+  // any pharmacy whose chosen duration has passed from 'active' to 'inactive'. Blocks
+  // new logins immediately (see AuthService); anyone already logged in keeps working
+  // until their token naturally expires (max 8h) -- same behavior as a manual
+  // deactivation, just triggered by the clock instead of a super-admin click.
+  @Cron(CronExpression.EVERY_10_MINUTES)
+  async deactivateExpiredSubscriptions() {
+    const expired = await this.db
+      .update(pharmacies)
+      .set({ subscriptionStatus: 'inactive' })
+      .where(and(eq(pharmacies.subscriptionStatus, 'active'), lte(pharmacies.subscriptionExpiry, new Date())))
+      .returning({ id: pharmacies.id, name: pharmacies.name });
+
+    if (expired.length > 0) {
+      this.logger.log(`Auto-deactivated ${expired.length} expired subscription(s): ${expired.map((p) => p.name).join(', ')}`);
+    }
   }
 }

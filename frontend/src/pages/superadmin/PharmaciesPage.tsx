@@ -25,6 +25,40 @@ interface JustCreated {
 
 const EMPTY_FORM = { pharmacyName: '', address: '', phone: '', adminEmail: '' };
 
+// Common billing cycles. The backend computes the actual expiry timestamp from
+// whichever one is picked (see UpdateSubscriptionDto/PharmaciesService) -- the
+// client never sends a date itself.
+const DURATION_OPTIONS = [
+  { days: 1, label: '1 day' },
+  { days: 7, label: '7 days' },
+  { days: 30, label: '30 days' },
+  { days: 90, label: '90 days' },
+  { days: 365, label: '1 year' },
+];
+
+function ActivateControl({ onActivate }: { onActivate: (days: number) => void }) {
+  const [days, setDays] = useState(30);
+  return (
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+      <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
+        {DURATION_OPTIONS.map((o) => (
+          <option key={o.days} value={o.days}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <button className="btn-secondary btn" onClick={() => onActivate(days)}>
+        Activate
+      </button>
+    </div>
+  );
+}
+
+function daysLeft(p: Pick<Pharmacy, 'subscriptionExpiry'>) {
+  if (!p.subscriptionExpiry) return null;
+  return Math.ceil((new Date(p.subscriptionExpiry).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+}
+
 export function PharmaciesPage() {
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -78,9 +112,13 @@ export function PharmaciesPage() {
     setTimeout(() => setCopied(false), 2000);
   }
 
-  async function toggleSubscription(p: Pharmacy) {
-    const next = p.subscriptionStatus === 'inactive' ? 'active' : 'inactive';
-    await api.patch(`/pharmacies/${p.id}/subscription`, { status: next });
+  async function activate(p: Pharmacy, days: number) {
+    await api.patch(`/pharmacies/${p.id}/subscription`, { status: 'active', days });
+    await load();
+  }
+
+  async function deactivate(p: Pharmacy) {
+    await api.patch(`/pharmacies/${p.id}/subscription`, { status: 'inactive' });
     await load();
   }
 
@@ -190,29 +228,49 @@ export function PharmaciesPage() {
                 <th>Code</th>
                 <th>Name</th>
                 <th>Status</th>
+                <th>Expires</th>
                 <th>Created</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {pharmacies.map((p) => (
-                <tr key={p.id}>
-                  <td style={{ fontFamily: 'monospace', color: 'var(--text-muted)' }}>{p.code}</td>
-                  <td>{p.name}</td>
-                  <td>
-                    <span className={`badge ${STATUS_CLASS[p.subscriptionStatus]}`}>{p.subscriptionStatus}</span>
-                  </td>
-                  <td>{new Date(p.createdAt).toLocaleDateString()}</td>
-                  <td>
-                    <button className="btn-secondary btn" onClick={() => toggleSubscription(p)}>
-                      {p.subscriptionStatus === 'inactive' ? 'Activate' : 'Deactivate'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {pharmacies.map((p) => {
+                const left = daysLeft(p);
+                return (
+                  <tr key={p.id}>
+                    <td style={{ fontFamily: 'monospace', color: 'var(--text-muted)' }}>{p.code}</td>
+                    <td>{p.name}</td>
+                    <td>
+                      <span className={`badge ${STATUS_CLASS[p.subscriptionStatus]}`}>{p.subscriptionStatus}</span>
+                    </td>
+                    <td>
+                      {p.subscriptionStatus === 'active' && p.subscriptionExpiry ? (
+                        <span style={{ color: left !== null && left <= 3 ? 'var(--warning)' : undefined }}>
+                          {new Date(p.subscriptionExpiry).toLocaleDateString()}
+                          {left !== null && (
+                            <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> ({left <= 0 ? 'today' : `${left}d left`})</span>
+                          )}
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--text-muted)' }}>—</span>
+                      )}
+                    </td>
+                    <td>{new Date(p.createdAt).toLocaleDateString()}</td>
+                    <td>
+                      {p.subscriptionStatus === 'active' ? (
+                        <button className="btn-secondary btn" onClick={() => deactivate(p)}>
+                          Deactivate
+                        </button>
+                      ) : (
+                        <ActivateControl onActivate={(days) => activate(p, days)} />
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
               {pharmacies.length === 0 && (
                 <tr>
-                  <td colSpan={5} style={{ color: 'var(--text-muted)' }}>
+                  <td colSpan={6} style={{ color: 'var(--text-muted)' }}>
                     No pharmacies yet.
                   </td>
                 </tr>
