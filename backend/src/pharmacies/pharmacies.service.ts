@@ -102,6 +102,57 @@ export class PharmaciesService {
     return { ...pharmacy, code: pharmacyCode(pharmacy.id) };
   }
 
+  // Super admin's "View Details" panel: the row itself, plus who logs in as its
+  // admin and who else works there. Split from `staff` so the frontend can show
+  // "Admin" separately from the manager/salesman roster without re-deriving it.
+  async getDetails(id: number) {
+    const [pharmacy] = await this.db.select().from(pharmacies).where(eq(pharmacies.id, id)).limit(1);
+    if (!pharmacy) {
+      throw new NotFoundException('Pharmacy not found');
+    }
+
+    const people = await this.db
+      .select({
+        id: users.id,
+        role: users.role,
+        name: users.name,
+        email: users.email,
+        active: users.active,
+        createdAt: users.createdAt,
+      })
+      .from(users)
+      .where(eq(users.pharmacyId, id))
+      .orderBy(users.role, users.name);
+
+    return {
+      ...pharmacy,
+      code: pharmacyCode(pharmacy.id),
+      admin: people.find((u) => u.role === 'pharmacy_admin') ?? null,
+      staff: people.filter((u) => u.role !== 'pharmacy_admin'),
+    };
+  }
+
+  // Password recovery for a pharmacy admin who's locked out -- there's no "forgot
+  // password" self-service flow (no email delivery in v1), so the super admin does
+  // it on their behalf. Same one-time-display contract as `create()`: only the hash
+  // survives after this response.
+  async regeneratePassword(id: number) {
+    const [admin] = await this.db
+      .select()
+      .from(users)
+      .where(and(eq(users.pharmacyId, id), eq(users.role, 'pharmacy_admin')))
+      .limit(1);
+    if (!admin) {
+      throw new NotFoundException('Pharmacy admin not found');
+    }
+
+    const generatedPassword = generatePassword();
+    const passwordHash = await bcrypt.hash(generatedPassword, 10);
+    await this.db.update(users).set({ passwordHash }).where(eq(users.id, admin.id));
+
+    return { email: admin.email, generatedPassword };
+  }
+
   // Auto-deactivation for time-boxed subscriptions: runs every 10 minutes and flips
   // any pharmacy whose chosen duration has passed from 'active' to 'inactive'. Blocks
   // new logins immediately (see AuthService); anyone already logged in keeps working

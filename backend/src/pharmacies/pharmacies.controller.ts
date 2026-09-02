@@ -21,8 +21,18 @@ export class PharmaciesController {
     return this.pharmaciesService.create(dto);
   }
 
+  @Get(':id')
+  getDetails(@Param('id', ParseIntPipe) id: number) {
+    return this.pharmaciesService.getDetails(id);
+  }
+
   @Patch(':id/subscription')
   updateSubscription(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateSubscriptionDto) {
     return this.pharmaciesService.updateSubscription(id, dto);
+  }
+
+  @Post(':id/regenerate-password')
+  regeneratePassword(@Param('id', ParseIntPipe) id: number) {
+    return this.pharmaciesService.regeneratePassword(id);
   }
 }
