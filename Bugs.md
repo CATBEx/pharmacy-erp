@@ -7,7 +7,7 @@ Status legend: 🔴 Open · 🟡 In progress · 🟢 Fixed (pending deploy) · �
 
 ---
 
-## 1. 🟢 Medicine search doesn't rank results — substring matches beat the real match
+## 1. ✅ Medicine search doesn't rank results — substring matches beat the real match
 
 **Reported:** searching "Napa" in the Add Product medicine search returns "Lonapam" (all 3
 strengths) before "Napa" itself.
@@ -23,11 +23,11 @@ with* the query, then names where the query starts a word within the name, then 
 stays the same (`ILIKE '%query%'`), only the ordering changes.
 
 **Verified:** searching "Napa" now returns all Napa* variants before Lonapam/Tenapam (checked via
-direct API call). Pending: deploy to production.
+direct API call). **Deployed 2026-09-02** to http://161.97.154.211:8085.
 
 ---
 
-## 2. 🟢 No pack/piece conversion — salesman always has to type quantity in individual pieces
+## 2. ✅ No pack/piece conversion — salesman always has to type quantity in individual pieces
 
 **Reported:** medicine is usually sold by the pack (strip/box) and sometimes as single pieces;
 typing everything in pcs every time isn't efficient. Needs to know how many pieces are in one
@@ -214,11 +214,12 @@ Supersedes the earlier single `piecesPerPack` field.
   columns at 390px — pre-existing `table-scroll` pattern already used elsewhere in the app, not a
   new regression; noted for future polish, not blocking.)
 
-Pending: deploy to production (schema migration included).
+**Deployed 2026-09-02** to http://161.97.154.211:8085 — migration applied, `pieces_per_strip`/
+`strips_per_box` columns confirmed live in production via `\d products`.
 
 ---
 
-## 3. 🟢 Purchases (stock-in) form: no product search, and quantity is a single plain number
+## 3. ✅ Purchases (stock-in) form: no product search, and quantity is a single plain number
 
 **Reported:** the "Record Purchase" form's Product field is a plain dropdown with no way to
 search, and Quantity is one input box — should instead be 3 separate integer boxes (Box / Strip /
@@ -272,7 +273,7 @@ stock figure).
   and Products/Dashboard stock displays checked at 390px/768px/1440px — all render cleanly, no
   overlap or cut-off content.
 
-Pending: deploy to production.
+**Deployed 2026-09-02** to http://161.97.154.211:8085.
 
 ---
 

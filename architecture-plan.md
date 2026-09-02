@@ -385,12 +385,16 @@ pack-to-piece math.
   same `table-scroll` behavior already used by every data table in the app.
 - Both workspaces (`npm run --workspace=backend build`, `npm run --workspace=frontend build`)
   typecheck/build clean.
-- **Not yet done**: deploy to the VPS (this is a schema-changing deploy — the migration step is
-  required, see deploy notes to follow).
+- **Deployed 2026-09-02** to http://161.97.154.211:8085 via the usual GitHub → VPS `git pull` →
+  `npm ci` → `db:migrate` → rebuild both workspaces → `pm2 restart --update-env` pipeline. Migration
+  confirmed applied directly against the production DB (`\d products` shows `pieces_per_strip`/
+  `strips_per_box`, both `not null default 1`).
 
 ## Next up
 - **Off-server backups** — raised with the user, not yet decided/built (see Phase 6 above).
-- **GitHub token rotation** — the PAT used for the VPS's `git pull` expires ~7 days from 2026-09-02.
+- **GitHub token rotation** — a fresh PAT was issued and used for both the local push and the VPS's
+  `origin` remote during this batch's deploy (2026-09-02); it expires ~7 days out same as before —
+  regenerate again when it does.
 - **SSL/domain** — currently IP+port only (`http://161.97.154.211:8085`, no TLS). User explicitly
   deferred buying/pointing a domain; revisit nginx `server_name` + certbot once they have one.
 - The UTC-day-boundary limitation on the dashboard's "today"/"yesterday" figures (see Phase 5 notes) —
