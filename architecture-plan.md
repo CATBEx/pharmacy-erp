@@ -279,6 +279,35 @@ flagged earlier under "Subscription & onboarding model."
   set to auto-deactivate 2026-09-03; flagged to the user to re-activate it for whatever duration they
   actually want.
 
+## Super admin: pharmacy details + password regeneration — done 2026-09-02
+User feedback right after the auto-expiring-subscriptions ship: the Pharmacies table only ever
+showed Code/Name/Status/Expires/Created — no way to see a pharmacy's address/phone/admin login, and
+no way to recover a lost admin password (the generated password is only ever shown once, at
+creation).
+- `PharmaciesService.getDetails(id)` — new `GET /pharmacies/:id`: returns the pharmacy row (code,
+  address, phone, subscription status/expiry, created date) plus everyone who works there, split
+  into `admin` (the `pharmacy_admin` user) and `staff` (managers/salesmen) — reuses the same
+  `users` table query pattern as `UsersService.listStaff`, but parameterized by the route's `:id`
+  instead of the JWT's `pharmacyId`, since only Super Admin can look at *any* pharmacy this way.
+- `PharmaciesService.regeneratePassword(id)` — new `POST /pharmacies/:id/regenerate-password`:
+  finds that pharmacy's admin user, generates a new password with the same `generatePassword()`
+  helper used at creation, bcrypt-hashes it, overwrites `passwordHash` (immediately invalidating the
+  old one), and returns `{ email, generatedPassword }` once — same one-time-display contract as
+  pharmacy creation; only the hash survives after the response.
+- `PharmaciesPage.tsx`: each row now has a "Details" button opening a side panel (reuses the
+  `.split-row`/`.split-main`/`.split-side` layout already built for the Dashboard, which already
+  stacks correctly on mobile) showing address, phone, admin login email, status/expiry, created
+  date, and the staff roster. A "Regenerate password" button there asks for confirmation inline (no
+  browser `confirm()` dialog) since it invalidates the current password immediately, then shows the
+  new one in the same tap-to-copy `CredentialsBox` component used at pharmacy creation (factored out
+  so both flows share it).
+- Verified: typecheck clean on both workspaces; full flow tested against the sandbox DB with a
+  throwaway test pharmacy (not the real Seba Pharma) — old password confirmed working, regenerated,
+  old password then correctly rejected (401) and new one accepted (200), 404 on a nonexistent
+  pharmacy id on both new routes, 403 confirmed for a pharmacy_admin trying either route (still
+  super-admin-only). Browser-tested at both desktop and phone (390px) viewports — details panel and
+  regenerated-credentials box render and stack correctly on both.
+
 ## Next up
 - **Off-server backups** — raised with the user, not yet decided/built (see Phase 6 above).
 - **GitHub token rotation** — the PAT used for the VPS's `git pull` expires ~7 days from 2026-09-02.
@@ -289,8 +318,10 @@ flagged earlier under "Subscription & onboarding model."
   process or a `pharmacy.timezone` column.
 - Online payment collection (SSLCommerz or similar) was discussed but explicitly deferred — billing
   stays manual for now (Super Admin activates/deactivates by hand, now with an optional auto-expiry).
-- No "change my password" UI exists yet — the seeded super admin (`admin@pharmacy-erp.local`) and any
-  generated pharmacy-admin password can only be reset by an admin action today, not self-service.
+- No self-service "change my own password" UI exists yet for anyone. A pharmacy admin's password
+  can now be reset *for them* by the Super Admin (see "pharmacy details + password regeneration"
+  above); the seeded super admin (`admin@pharmacy-erp.local`) still has no reset path at all short
+  of editing the DB directly.
 
 ---
 _This file mirrors the "architecture-plan.md" doc kept in the attached Claude Project (readable from any Claude session on this project). It's also placed here, at the repo root, so a future agent working directly in this folder — including one without access to the Claude Project — can read the full history and current state without needing that context passed in separately. If the two ever drift, the Claude Project doc is the one actively kept up to date turn-by-turn; re-sync this copy from there periodically._
