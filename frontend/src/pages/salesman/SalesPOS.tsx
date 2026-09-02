@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api/client';
+import { formatStock } from '../../utils/packSize';
 
 interface Product {
   id: number;
   name: string;
   unit: string;
+  piecesPerStrip: number;
+  stripsPerBox: number;
   qtyOnHand: number;
 }
 
@@ -13,8 +16,21 @@ interface CartLine {
   name: string;
   unit: string;
   qtyOnHand: number;
-  qty: number;
+  piecesPerStrip: number;
+  // Piece/Strip only here (not Box) -- a whole box is never sold to a walk-in customer, that
+  // level only matters at stock-in (see PurchasesPage). salePrice stays price-PER-PIECE either
+  // way, unchanged from before this feature -- only how the quantity is entered changes.
+  unitMode: 'piece' | 'strip';
+  count: number; // amount typed, in unitMode's unit
   salePrice: string;
+}
+
+function lineQty(line: CartLine) {
+  return line.unitMode === 'strip' ? line.count * line.piecesPerStrip : line.count;
+}
+
+function lineMax(line: CartLine) {
+  return line.unitMode === 'strip' ? Math.max(1, Math.floor(line.qtyOnHand / line.piecesPerStrip)) : Math.max(1, line.qtyOnHand);
 }
 
 export function SalesPOS() {
@@ -44,7 +60,7 @@ export function SalesPOS() {
     return products.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 8);
   }, [query, products]);
 
-  const total = cart.reduce((sum, line) => sum + line.qty * (Number(line.salePrice) || 0), 0);
+  const total = cart.reduce((sum, line) => sum + lineQty(line) * (Number(line.salePrice) || 0), 0);
 
   function addToCart(p: Product) {
     setError(null);
@@ -52,9 +68,24 @@ export function SalesPOS() {
     setCart((prev) => {
       const existing = prev.find((l) => l.productId === p.id);
       if (existing) {
-        return prev.map((l) => (l.productId === p.id ? { ...l, qty: l.qty + 1 } : l));
+        return prev.map((l) => (l.productId === p.id ? { ...l, count: l.count + 1 } : l));
       }
-      return [...prev, { productId: p.id, name: p.name, unit: p.unit, qtyOnHand: p.qtyOnHand, qty: 1, salePrice: '' }];
+      // Default to Strip when the product has one (medicine sells by the strip most of the
+      // time -- see architecture-plan.md); products with no strip packaging just sell by piece.
+      const unitMode: 'piece' | 'strip' = p.piecesPerStrip > 1 ? 'strip' : 'piece';
+      return [
+        ...prev,
+        {
+          productId: p.id,
+          name: p.name,
+          unit: p.unit,
+          qtyOnHand: p.qtyOnHand,
+          piecesPerStrip: p.piecesPerStrip,
+          unitMode,
+          count: 1,
+          salePrice: '',
+        },
+      ];
     });
     setQuery('');
     // Focus the price field of the row just added, so the cashier can type the price
@@ -95,7 +126,7 @@ export function SalesPOS() {
     setSaving(true);
     try {
       await api.post('/sales', {
-        items: cart.map((l) => ({ productId: l.productId, qty: l.qty, salePrice: l.salePrice })),
+        items: cart.map((l) => ({ productId: l.productId, qty: lineQty(l), salePrice: l.salePrice })),
       });
       setSuccess(`Sale completed — ${total.toFixed(2)} total`);
       setCart([]);
@@ -143,7 +174,7 @@ export function SalesPOS() {
               >
                 <span>{p.name}</span>
                 <span style={{ color: p.qtyOnHand <= 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
-                  {p.qtyOnHand} {p.unit} left
+                  {formatStock(p.qtyOnHand, p.piecesPerStrip, p.stripsPerBox, p.unit)} left
                 </span>
               </div>
             ))}
@@ -168,14 +199,49 @@ export function SalesPOS() {
                 <tr key={line.productId}>
                   <td>{line.name}</td>
                   <td>
-                    <input
-                      type="number"
-                      min={1}
-                      max={line.qtyOnHand}
-                      value={line.qty}
-                      onChange={(e) => updateLine(line.productId, { qty: Math.max(1, Number(e.target.value)) })}
-                      style={{ width: 70 }}
-                    />
+                    {line.piecesPerStrip > 1 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <div style={{ display: 'flex', gap: 3 }}>
+                          {(['strip', 'piece'] as const).map((mode) => (
+                            <button
+                              key={mode}
+                              type="button"
+                              className="btn-secondary btn"
+                              onClick={() => updateLine(line.productId, { unitMode: mode, count: 1 })}
+                              style={{
+                                padding: '2px 8px',
+                                fontSize: 11,
+                                ...(line.unitMode === mode
+                                  ? { background: 'var(--primary)', color: 'white', borderColor: 'var(--primary)' }
+                                  : {}),
+                              }}
+                            >
+                              {mode === 'strip' ? 'Strip' : 'Pcs'}
+                            </button>
+                          ))}
+                        </div>
+                        <input
+                          type="number"
+                          min={1}
+                          max={lineMax(line)}
+                          value={line.count}
+                          onChange={(e) => updateLine(line.productId, { count: Math.max(1, Number(e.target.value)) })}
+                          style={{ width: 70 }}
+                        />
+                        {line.unitMode === 'strip' && (
+                          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>= {lineQty(line)} pcs</span>
+                        )}
+                      </div>
+                    ) : (
+                      <input
+                        type="number"
+                        min={1}
+                        max={line.qtyOnHand}
+                        value={line.count}
+                        onChange={(e) => updateLine(line.productId, { count: Math.max(1, Number(e.target.value)) })}
+                        style={{ width: 70 }}
+                      />
+                    )}
                   </td>
                   <td>
                     <input
@@ -191,7 +257,7 @@ export function SalesPOS() {
                       style={{ width: 100 }}
                     />
                   </td>
-                  <td>{(line.qty * (Number(line.salePrice) || 0)).toFixed(2)}</td>
+                  <td>{(lineQty(line) * (Number(line.salePrice) || 0)).toFixed(2)}</td>
                   <td>
                     <button className="btn-secondary btn" onClick={() => removeLine(line.productId)} style={{ padding: '4px 10px' }}>
                       ✕

@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from '../../api/client';
+import { formatStock, packSizeDropdownOptions, type PackSizeSuggestion } from '../../utils/packSize';
 
 interface Product {
   id: number;
   name: string;
   unit: string;
+  piecesPerStrip: number;
+  stripsPerBox: number;
   reorderLevel: number;
   active: boolean;
   medicineMasterId: number | null;
@@ -32,6 +35,16 @@ export function ProductsPage() {
   const [saving, setSaving] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Packaging: 1 box = stripsPerBox strips, 1 strip = piecesPerStrip pieces. Dropdown-only, no
+  // typing -- pre-filled with what other pharmacies use for this exact medicine (most-used
+  // first) once one is picked from the catalog, falling back to the generic curated list.
+  const [piecesPerStrip, setPiecesPerStrip] = useState(1);
+  const [stripsPerBox, setStripsPerBox] = useState(1);
+  const [packSuggestions, setPackSuggestions] = useState<{
+    piecesPerStrip: PackSizeSuggestion[];
+    stripsPerBox: PackSizeSuggestion[];
+  }>({ piecesPerStrip: [], stripsPerBox: [] });
+
   async function load() {
     const { data } = await api.get<Product[]>('/products');
     setProducts(data);
@@ -55,10 +68,22 @@ export function ProductsPage() {
     }, 250);
   }
 
-  function pickSuggestion(hit: MasterHit) {
+  async function pickSuggestion(hit: MasterHit) {
     setName(hit.name);
     setMedicineMasterId(hit.id);
     setSuggestions([]);
+    // Reset to the plain curated list while the real cross-pharmacy data loads, then swap in
+    // once it arrives -- avoids briefly showing the *previous* medicine's suggestions.
+    setPackSuggestions({ piecesPerStrip: [], stripsPerBox: [] });
+    const { data } = await api.get<{ piecesPerStrip: PackSizeSuggestion[]; stripsPerBox: PackSizeSuggestion[] }>(
+      '/products/pack-size-suggestions',
+      { params: { medicineMasterId: hit.id } },
+    );
+    setPackSuggestions(data);
+    // If other pharmacies have a clear most-common value, default to it -- the admin can still
+    // change it before saving, this just saves a click in the common case.
+    if (data.piecesPerStrip[0]) setPiecesPerStrip(data.piecesPerStrip[0].value);
+    if (data.stripsPerBox[0]) setStripsPerBox(data.stripsPerBox[0].value);
   }
 
   async function handleCreate(e: FormEvent) {
@@ -69,11 +94,16 @@ export function ProductsPage() {
       await api.post('/products', {
         name,
         unit,
+        piecesPerStrip,
+        stripsPerBox,
         reorderLevel,
         medicineMasterId: medicineMasterId ?? undefined,
       });
       setName('');
       setUnit('pcs');
+      setPiecesPerStrip(1);
+      setStripsPerBox(1);
+      setPackSuggestions({ piecesPerStrip: [], stripsPerBox: [] });
       setReorderLevel(10);
       setMedicineMasterId(null);
       setShowForm(false);
@@ -145,6 +175,34 @@ export function ProductsPage() {
           </div>
 
           <div className="form-row">
+            <label>Pieces per strip</label>
+            <select value={piecesPerStrip} onChange={(e) => setPiecesPerStrip(Number(e.target.value))}>
+              {packSizeDropdownOptions(packSuggestions.piecesPerStrip).map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, marginBottom: 0 }}>
+              1 if sold loose (syrups, bottles, single vials) — e.g. 10 for a standard tablet strip.
+            </p>
+          </div>
+
+          <div className="form-row">
+            <label>Strips per box</label>
+            <select value={stripsPerBox} onChange={(e) => setStripsPerBox(Number(e.target.value))}>
+              {packSizeDropdownOptions(packSuggestions.stripsPerBox).map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, marginBottom: 0 }}>
+              Only matters for stock-in by the box — leave at 1 if you don't buy in cartons.
+            </p>
+          </div>
+
+          <div className="form-row">
             <label>Reorder level (low-stock threshold)</label>
             <input
               type="number"
@@ -178,7 +236,7 @@ export function ProductsPage() {
                   <td>{p.name}</td>
                   <td>{p.unit}</td>
                   <td style={{ color: p.qtyOnHand <= p.reorderLevel ? 'var(--danger)' : undefined, fontWeight: 600 }}>
-                    {p.qtyOnHand}
+                    {formatStock(p.qtyOnHand, p.piecesPerStrip, p.stripsPerBox, p.unit)}
                   </td>
                   <td>{p.reorderLevel}</td>
                 </tr>

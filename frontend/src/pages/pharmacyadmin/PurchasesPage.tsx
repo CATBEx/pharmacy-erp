@@ -1,10 +1,13 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { api } from '../../api/client';
+import { formatStock, toPieces } from '../../utils/packSize';
 
 interface Product {
   id: number;
   name: string;
   unit: string;
+  piecesPerStrip: number;
+  stripsPerBox: number;
 }
 interface Supplier {
   id: number;
@@ -25,13 +28,22 @@ export function PurchasesPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({
-    productId: '',
-    supplierId: '',
-    qty: '',
-    purchasePrice: '',
-    batchNumber: '',
-  });
+  const [form, setForm] = useState({ supplierId: '', purchasePrice: '', batchNumber: '' });
+
+  // Searchable product picker (type to filter the pharmacy's own product list, click/pick to
+  // select) -- replaces the old plain <select>, which was unusable once a pharmacy has more
+  // than a screenful of products.
+  const [productQuery, setProductQuery] = useState('');
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+
+  // Box / Strip / Pcs -- three combinable integer inputs instead of one plain quantity field,
+  // converted to a single piece count using the selected product's own pack size (see
+  // architecture-plan.md's pack/piece conversion feature). Backend still stores one plain piece
+  // count, unchanged.
+  const [box, setBox] = useState('');
+  const [strip, setStrip] = useState('');
+  const [pcs, setPcs] = useState('');
+
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -50,23 +62,51 @@ export function PurchasesPage() {
     loadAll();
   }, []);
 
-  function productName(id: number) {
-    return products.find((p) => p.id === id)?.name ?? `#${id}`;
+  function productById(id: number) {
+    return products.find((p) => p.id === id);
   }
+
+  const productSuggestions = useMemo(() => {
+    const q = productQuery.trim().toLowerCase();
+    if (!q) return [];
+    return products.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 8);
+  }, [productQuery, products]);
+
+  function pickProduct(p: Product) {
+    setSelectedProduct(p);
+    setProductQuery(p.name);
+  }
+
+  const totalPieces = selectedProduct
+    ? toPieces(Number(box) || 0, Number(strip) || 0, Number(pcs) || 0, selectedProduct.piecesPerStrip, selectedProduct.stripsPerBox)
+    : 0;
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    if (!selectedProduct) {
+      setError('Select a product from the list');
+      return;
+    }
+    if (totalPieces <= 0) {
+      setError('Enter a quantity (Box, Strip, and/or Pcs)');
+      return;
+    }
     setSaving(true);
     try {
       await api.post('/purchases', {
-        productId: Number(form.productId),
+        productId: selectedProduct.id,
         supplierId: form.supplierId ? Number(form.supplierId) : undefined,
-        qty: Number(form.qty),
+        qty: totalPieces,
         purchasePrice: form.purchasePrice,
         batchNumber: form.batchNumber || undefined,
       });
-      setForm({ productId: '', supplierId: '', qty: '', purchasePrice: '', batchNumber: '' });
+      setForm({ supplierId: '', purchasePrice: '', batchNumber: '' });
+      setProductQuery('');
+      setSelectedProduct(null);
+      setBox('');
+      setStrip('');
+      setPcs('');
       setShowForm(false);
       await loadAll();
     } catch (err: any) {
@@ -87,20 +127,42 @@ export function PurchasesPage() {
 
       {showForm && (
         <form onSubmit={handleCreate} className="card form-card">
-          <div className="form-row">
+          <div className="form-row" style={{ position: 'relative' }}>
             <label>Product</label>
-            <select
+            <input
               required
-              value={form.productId}
-              onChange={(e) => setForm({ ...form, productId: e.target.value })}
-            >
-              <option value="">Select a product…</option>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+              placeholder="Search your products…"
+              value={productQuery}
+              onChange={(e) => {
+                setProductQuery(e.target.value);
+                setSelectedProduct(null); // typing again means it's no longer the previously picked match
+              }}
+              autoComplete="off"
+            />
+            {productQuery && !selectedProduct && productSuggestions.length > 0 && (
+              <div
+                className="card"
+                style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, padding: 4, maxHeight: 220, overflowY: 'auto' }}
+              >
+                {productSuggestions.map((p) => (
+                  <div
+                    key={p.id}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => pickProduct(p)}
+                    style={{ padding: '8px 10px', cursor: 'pointer', borderRadius: 6, fontSize: 13 }}
+                  >
+                    {p.name}
+                  </div>
+                ))}
+              </div>
+            )}
+            {selectedProduct && (
+              <span style={{ fontSize: 12, color: 'var(--success)' }}>
+                {selectedProduct.piecesPerStrip > 1 || selectedProduct.stripsPerBox > 1
+                  ? `${selectedProduct.piecesPerStrip} pcs/strip, ${selectedProduct.stripsPerBox} strips/box`
+                  : 'Not tracked in packs — enter Pcs'}
+              </span>
+            )}
           </div>
 
           <div className="form-row">
@@ -117,13 +179,29 @@ export function PurchasesPage() {
 
           <div className="form-row">
             <label>Quantity received</label>
-            <input
-              type="number"
-              min={1}
-              required
-              value={form.qty}
-              onChange={(e) => setForm({ ...form, qty: e.target.value })}
-            />
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              {([
+                ['Box', box, setBox],
+                ['Strip', strip, setStrip],
+                ['Pcs', pcs, setPcs],
+              ] as const).map(([label, value, setValue]) => (
+                <div key={label}>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    placeholder="0"
+                    value={value}
+                    onChange={(e) => setValue(e.target.value)}
+                    style={{ width: 70 }}
+                  />
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', marginTop: 2 }}>{label}</div>
+                </div>
+              ))}
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8, marginBottom: 0 }}>
+              = <strong>{totalPieces}</strong> pieces total
+            </p>
           </div>
 
           <div className="form-row">
@@ -163,15 +241,18 @@ export function PurchasesPage() {
               </tr>
             </thead>
             <tbody>
-              {purchases.map((p) => (
-                <tr key={p.id}>
-                  <td>{productName(p.productId)}</td>
-                  <td>{p.qty}</td>
-                  <td>{p.purchasePrice}</td>
-                  <td>{p.batchNumber || '—'}</td>
-                  <td>{new Date(p.purchaseDate).toLocaleDateString()}</td>
-                </tr>
-              ))}
+              {purchases.map((p) => {
+                const prod = productById(p.productId);
+                return (
+                  <tr key={p.id}>
+                    <td>{prod?.name ?? `#${p.productId}`}</td>
+                    <td>{prod ? formatStock(p.qty, prod.piecesPerStrip, prod.stripsPerBox, prod.unit) : p.qty}</td>
+                    <td>{p.purchasePrice}</td>
+                    <td>{p.batchNumber || '—'}</td>
+                    <td>{new Date(p.purchaseDate).toLocaleDateString()}</td>
+                  </tr>
+                );
+              })}
               {purchases.length === 0 && (
                 <tr>
                   <td colSpan={5} style={{ color: 'var(--text-muted)' }}>

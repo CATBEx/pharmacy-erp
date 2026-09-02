@@ -308,6 +308,86 @@ creation).
   super-admin-only). Browser-tested at both desktop and phone (390px) viewports — details panel and
   regenerated-credentials box render and stack correctly on both.
 
+## Bug-tracking workflow — started 2026-09-02
+User asked for reported issues to be logged one at a time in `Bugs.md` (repo root) with root-cause
+analysis and a proposed fix, worked through together rather than fixed on the fly. Each entry
+carries a status marker (🔴 Open · 🟡 In progress · 🟢 Fixed, pending deploy · ✅ Deployed &
+verified) so both sides can see what's outstanding. See `Bugs.md` for the full log — the sections
+below summarize what shipped from it.
+
+## Medicine search relevance ranking — done 2026-09-02
+Reported: searching "Napa" returned "Lonapam" (contains "napa" as a mid-word substring) before
+"Napa" itself — the search had a filter but no relevance ordering.
+- `MedicineMasterService.search()` (`backend/src/medicine-master/medicine-master.service.ts`): added
+  a Drizzle raw-`sql` `ORDER BY` tier (`CASE WHEN ... THEN 0/1/2 ELSE 3 END`) — exact match, then
+  starts-with, then word-start match, then everything else (mid-word substrings) last, alphabetical
+  within each tier. Filter itself (`ILIKE '%query%'`) unchanged.
+- Verified via direct API call: "Napa" now returns all Napa* variants before Lonapam/Tenapam.
+
+## Pack/piece conversion (Piece → Strip → Box) — done 2026-09-02
+Reported: medicine is sold mostly by strip/box and sometimes as loose pieces; salesmen shouldn't
+have to type every sale quantity in individual pieces. Full research trail (why the imported
+medicine CSV/medex.com.bd/DGHS API/Hugging Face mirror all turned out unusable as bulk pack-size
+sources, and the self-correcting crowd-sourced design that resulted) is in `Bugs.md` bug #2 — kept
+there rather than duplicated here since it's a discussion record, not just a build summary.
+
+**Schema** (`products` table, migration `0001_add_product_pack_sizes.sql`): `piecesPerStrip` and
+`stripsPerBox`, both `integer default 1 not null` — a product left at the default is untracked
+(sold loose: syrups, bottles, vials).
+
+**Crowd-sourced suggestions, computed not stored**: `ProductsService.packSizeSuggestions()` +
+`GET /products/pack-size-suggestions?medicineMasterId=X` — a live `GROUP BY piecesPerStrip/
+stripsPerBox` across every pharmacy's own `products` rows for that shared catalog medicine, most-
+used value first with its pharmacy count (e.g. "10 pcs/strip — used by 42 pharmacies"). No new
+aggregate table, same "computed, not stored" principle used for stock-on-hand/supplier balances
+elsewhere in this app — a pharmacy's own value is never overwritten by another pharmacy's, so one
+bad entry can't silently propagate; it just shows up honestly as its own low-count option.
+Dropdown-only entry (no free-typing), curated fallback list
+(1,2,4,5,6,8,10,12,14,15,20,24,25,30,40,50,60,100) when nothing's been reported yet for that
+medicine.
+
+**Where it shows up**:
+- **Product form** (`ProductsPage.tsx`): two dropdowns, "Pieces per strip" / "Strips per box",
+  pre-filled from the live suggestion the moment a catalog match is picked.
+- **Sell (POS)** (`SalesPOS.tsx`): Piece/Strip toggle per cart line (no Box — a walk-in customer
+  never buys a whole box), defaults to Strip when `piecesPerStrip > 1`, "= N pcs" caption.
+  `salePrice` stays price-per-piece, unchanged — this only changes how quantity is entered.
+- **Purchases (stock-in)** (`PurchasesPage.tsx`): all three levels — see next section, built
+  together with this.
+- **Stock display everywhere** (`frontend/src/utils/packSize.ts`'s `formatStock()`): Products page
+  "On hand" column, Dashboard low-stock list, POS search-result stock figures, and Purchases
+  history all show the Box/Strip/Pcs breakdown instead of a raw piece count, omitting any
+  zero-value unit (e.g. 200 pieces at 10/strip, 10 strips/box shows as "2 Box", not "2 Box, 0
+  Strip, 0 Pcs"). A product with no pack tracking set just shows the plain number, unchanged.
+
+## Purchases (stock-in) form: product search + Box/Strip/Pcs entry — done 2026-09-02
+Reported: the Product field was a plain `<select>` with no search (unusable once a pharmacy has
+more than a screenful of products), and Quantity was a single number field requiring manual
+pack-to-piece math.
+- `PurchasesPage.tsx` rewritten: the `<select>` replaced with a client-side search-as-you-type
+  product picker (same pattern as POS/Products medicine search — no new backend call, filters the
+  already-loaded product list); the single Quantity field replaced with three combinable Box/
+  Strip/Pcs integer inputs, converted via that product's own `piecesPerStrip`/`stripsPerBox`
+  (`toPieces()` in `packSize.ts`) with a live "= N pieces total" readout. Backend still stores one
+  plain piece count — unchanged.
+- Verified: 1 Box + 3 Strip + 2 Pcs on a 10 pcs/strip, 10 strips/box product correctly totals 132
+  pieces (browser-automation screenshot check).
+
+## Verification — this batch, 2026-09-02
+- Backend: direct API checks for search ranking, suggestion aggregation (correct per-value
+  pharmacy counts), and piece-count math.
+- Frontend: browser automation (Playwright) confirmed the Products-page dropdown pre-fill for both
+  a never-stocked and a previously-stocked medicine, the POS Strip/Pcs toggle default and switch
+  behavior, and the Purchases form's live total.
+- Responsive: all four changed screens (Products form, Purchases form, POS cart, Dashboard) checked
+  at 390px/768px/1440px — render cleanly at every size. One pre-existing pattern noted, not a new
+  regression: the POS cart table needs a horizontal swipe to reach its rightmost columns at 390px,
+  same `table-scroll` behavior already used by every data table in the app.
+- Both workspaces (`npm run --workspace=backend build`, `npm run --workspace=frontend build`)
+  typecheck/build clean.
+- **Not yet done**: deploy to the VPS (this is a schema-changing deploy — the migration step is
+  required, see deploy notes to follow).
+
 ## Next up
 - **Off-server backups** — raised with the user, not yet decided/built (see Phase 6 above).
 - **GitHub token rotation** — the PAT used for the VPS's `git pull` expires ~7 days from 2026-09-02.
@@ -322,6 +402,9 @@ creation).
   can now be reset *for them* by the Super Admin (see "pharmacy details + password regeneration"
   above); the seeded super admin (`admin@pharmacy-erp.local`) still has no reset path at all short
   of editing the DB directly.
+- POS cart table's rightmost columns (Line Total, remove button) require a horizontal swipe on the
+  narrowest phone widths (~390px) — cosmetic, matches an existing app-wide pattern, worth a closer
+  look if it comes up as real user friction.
 
 ---
 _This file mirrors the "architecture-plan.md" doc kept in the attached Claude Project (readable from any Claude session on this project). It's also placed here, at the repo root, so a future agent working directly in this folder — including one without access to the Claude Project — can read the full history and current state without needing that context passed in separately. If the two ever drift, the Claude Project doc is the one actively kept up to date turn-by-turn; re-sync this copy from there periodically._

@@ -12,6 +12,18 @@ export class CreateProductDto {
   @IsString()
   unit?: string;
 
+  // Packaging hierarchy for this pharmacy's own stock -- see schema.ts on `products`. Both
+  // default to 1 (sold loose) when omitted.
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  piecesPerStrip?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  stripsPerBox?: number;
+
   @IsOptional()
   @IsInt()
   @Min(0)

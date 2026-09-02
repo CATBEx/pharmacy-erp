@@ -11,6 +11,16 @@ export class UpdateProductDto {
 
   @IsOptional()
   @IsInt()
+  @Min(1)
+  piecesPerStrip?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  stripsPerBox?: number;
+
+  @IsOptional()
+  @IsInt()
   @Min(0)
   reorderLevel?: number;
 

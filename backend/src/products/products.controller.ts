@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
 import { ProductsService } from './products.service.js';
 import { CreateProductDto } from './dto/create-product.dto.js';
 import { UpdateProductDto } from './dto/update-product.dto.js';
@@ -22,6 +22,18 @@ export class ProductsController {
   @Get('low-stock')
   lowStock(@CurrentUser() user: AuthUser) {
     return this.productsService.lowStock(user.pharmacyId!);
+  }
+
+  // Cross-pharmacy pack-size suggestions for the "add product" form -- see
+  // ProductsService.packSizeSuggestions. Not tenant-scoped (it aggregates across every
+  // pharmacy on the platform), but still requires a logged-in admin/manager since it's only
+  // useful from the add-product form they're the only ones who see.
+  @Roles('pharmacy_admin', 'manager')
+  @Get('pack-size-suggestions')
+  packSizeSuggestions(@Query('medicineMasterId') medicineMasterId?: string) {
+    const id = medicineMasterId ? Number(medicineMasterId) : null;
+    if (!id) return { piecesPerStrip: [], stripsPerBox: [] };
+    return this.productsService.packSizeSuggestions(id);
   }
 
   @Roles('pharmacy_admin', 'manager')

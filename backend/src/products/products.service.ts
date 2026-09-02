@@ -1,5 +1,5 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module.js';
 import type { Database } from '../db/client.js';
 import { products, purchases } from '../db/schema.js';
@@ -18,6 +18,8 @@ export class ProductsService {
         id: products.id,
         name: products.name,
         unit: products.unit,
+        piecesPerStrip: products.piecesPerStrip,
+        stripsPerBox: products.stripsPerBox,
         reorderLevel: products.reorderLevel,
         active: products.active,
         medicineMasterId: products.medicineMasterId,
@@ -43,10 +45,42 @@ export class ProductsService {
         medicineMasterId: dto.medicineMasterId,
         name: dto.name,
         unit: dto.unit ?? 'pcs',
+        piecesPerStrip: dto.piecesPerStrip ?? 1,
+        stripsPerBox: dto.stripsPerBox ?? 1,
         reorderLevel: dto.reorderLevel ?? 10,
       })
       .returning();
     return product;
+  }
+
+  // Cross-pharmacy pack-size suggestions for the "add product" dropdowns: for a given shared
+  // catalog medicine, how many pharmacies (platform-wide) have set each pieces-per-strip /
+  // strips-per-box value, most-used first. Purely a live count -- no separate table to keep in
+  // sync, same "computed, not stored" principle used elsewhere (stock, supplier balances). Safe
+  // to aggregate across tenants: only a number and a count are exposed, no pharmacy identity or
+  // business data, matching how medicine_master is already shared platform-wide.
+  async packSizeSuggestions(medicineMasterId: number) {
+    const [piecesPerStripRows, stripsPerBoxRows] = await Promise.all([
+      this.db
+        .select({
+          value: products.piecesPerStrip,
+          pharmacyCount: sql<number>`count(distinct ${products.pharmacyId})::int`,
+        })
+        .from(products)
+        .where(eq(products.medicineMasterId, medicineMasterId))
+        .groupBy(products.piecesPerStrip)
+        .orderBy(desc(sql`count(distinct ${products.pharmacyId})`)),
+      this.db
+        .select({
+          value: products.stripsPerBox,
+          pharmacyCount: sql<number>`count(distinct ${products.pharmacyId})::int`,
+        })
+        .from(products)
+        .where(eq(products.medicineMasterId, medicineMasterId))
+        .groupBy(products.stripsPerBox)
+        .orderBy(desc(sql`count(distinct ${products.pharmacyId})`)),
+    ]);
+    return { piecesPerStrip: piecesPerStripRows, stripsPerBox: stripsPerBoxRows };
   }
 
   async update(pharmacyId: number, id: number, dto: UpdateProductDto) {

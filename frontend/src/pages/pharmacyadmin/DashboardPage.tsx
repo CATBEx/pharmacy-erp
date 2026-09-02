@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api/client';
+import { formatStock } from '../../utils/packSize';
 
 interface Summary {
   cashFlowToday: number;
@@ -32,6 +33,8 @@ interface LowStockItem {
   id: number;
   name: string;
   qtyOnHand: number;
+  piecesPerStrip: number;
+  stripsPerBox: number;
   reorderLevel: number;
   unit: string;
 }
@@ -338,7 +341,8 @@ export function DashboardPage() {
                     <div>
                       <div style={{ fontSize: 13, fontWeight: 500 }}>{p.name}</div>
                       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                        {p.qtyOnHand} {p.unit} left &middot; reorder at {p.reorderLevel}
+                        {formatStock(p.qtyOnHand, p.piecesPerStrip, p.stripsPerBox, p.unit)} left &middot; reorder at{' '}
+                        {p.reorderLevel}
                       </div>
                     </div>
                     <span className="badge badge-inactive">Low</span>

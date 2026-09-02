@@ -74,6 +74,15 @@ export const products = pgTable('products', {
   medicineMasterId: integer('medicine_master_id').references(() => medicineMaster.id),
   name: varchar('name', { length: 255 }).notNull(), // denormalized for fast display / custom items
   unit: varchar('unit', { length: 50 }).notNull().default('pcs'), // pcs, box, bottle...
+  // Packaging hierarchy for this pharmacy's own stock of this product: 1 box = stripsPerBox
+  // strips, 1 strip = piecesPerStrip individual pieces. Both default to 1 for anything sold
+  // loose (syrups, bottles, single vials) -- stock/purchase/sale quantities are still tracked
+  // in plain pieces underneath (unchanged), these two fields are purely for converting a
+  // Box/Strip/Pcs UI entry to that piece count and back. See architecture-plan.md "pack/piece
+  // conversion" for the full design, including the cross-pharmacy suggested-value feature these
+  // fields feed into.
+  piecesPerStrip: integer('pieces_per_strip').notNull().default(1),
+  stripsPerBox: integer('strips_per_box').notNull().default(1),
   reorderLevel: integer('reorder_level').notNull().default(10),
   active: boolean('active').notNull().default(true),
   createdAt: timestamp('created_at').notNull().defaultNow(),

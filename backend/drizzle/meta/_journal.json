@@ -8,6 +8,13 @@
       "when": 1788320740262,
       "tag": "0000_steep_maddog",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788339627882,
+      "tag": "0001_add_product_pack_sizes",
+      "breakpoints": true
     }
   ]
 }
