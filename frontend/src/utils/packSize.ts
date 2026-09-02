@@ -3,32 +3,18 @@
 // product's own pack size), the Purchases form (stock-in quantity), the Sell/POS screen (sale
 // quantity), and any stock-on-hand display.
 
-// Common Bangladesh pharmacy retail pack sizes, curated from real packaging conventions (most
-// tablets/capsules strip in 10s; syrups/bottles/vials are usually 1 -- sold loose). Used to
-// populate the pack-size dropdowns so staff never have to type a number. Live cross-pharmacy
-// suggestions (see packSizeDropdownOptions below) are shown first when available; this list
-// fills in the rest.
-export const PACK_SIZE_OPTIONS = [1, 2, 4, 5, 6, 8, 10, 12, 14, 15, 20, 24, 25, 30, 40, 50, 60, 100];
-
 export interface PackSizeSuggestion {
   value: number;
   pharmacyCount: number;
 }
 
-// Merges live crowd-sourced suggestions (real values other pharmacies use for this exact
-// medicine, most-used first) with the generic curated list (for anything nobody's reported yet),
-// de-duplicated. Always dropdown-only -- no free typing anywhere in this feature.
-export function packSizeDropdownOptions(suggestions: PackSizeSuggestion[]): { value: number; label: string }[] {
-  const suggested = [...suggestions]
-    .filter((s) => s.value > 0)
-    .sort((a, b) => b.pharmacyCount - a.pharmacyCount)
-    .map((s) => ({
-      value: s.value,
-      label: `${s.value} — used by ${s.pharmacyCount} pharmac${s.pharmacyCount === 1 ? 'y' : 'ies'}`,
-    }));
-  const suggestedValues = new Set(suggested.map((s) => s.value));
-  const rest = PACK_SIZE_OPTIONS.filter((v) => !suggestedValues.has(v)).map((v) => ({ value: v, label: String(v) }));
-  return [...suggested, ...rest];
+// Pieces-per-strip / strips-per-box are free-typed number inputs (bug #7 -- reversed the earlier
+// dropdown-only design). The live cross-pharmacy suggestion data is still useful, so it's shown as
+// tappable chips next to the input instead of being the only way to set the value: most-used
+// first, filtered to real positive values. A pharmacy that already knows a shared number taps it
+// in one touch; nobody is blocked from typing something nobody's reported yet.
+export function sortedSuggestions(suggestions: PackSizeSuggestion[]): PackSizeSuggestion[] {
+  return [...suggestions].filter((s) => s.value > 0).sort((a, b) => b.pharmacyCount - a.pharmacyCount);
 }
 
 // Splits a raw piece count into Box / Strip / Pcs for display, omitting any zero-value unit

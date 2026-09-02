@@ -390,6 +390,40 @@ pack-to-piece math.
   confirmed applied directly against the production DB (`\d products` shows `pieces_per_strip`/
   `strips_per_box`, both `not null default 1`).
 
+## Second bug-fix round — done 2026-09-02
+Five more issues reported right after the first batch shipped, logged as bugs #4–#8 in `Bugs.md`
+and built together on "Implement":
+
+- **#4 Product name drops strength** — `medicine_master` stores `name`/`strength` as separate
+  columns (several strength variants can share one name, e.g. Napa 500mg vs Napa Extra 665mg).
+  `ProductsPage.tsx`'s `pickSuggestion()` now composes `"${name} (${strength})"` when picking a
+  catalog match, instead of saving the bare name. Verified: picking "Napa · 500 mg" fills the name
+  field with "Napa (500 mg)".
+- **#5 Mobile dropdown fade** — investigated, no code change made. Nothing in this app's CSS dims
+  the page on `<select>` open; this is almost certainly the native mobile browser picker's own
+  chrome (iOS wheel sheet / Android bottom sheet), which every plain `<select>` on any site does.
+  Left open in `Bugs.md` pending a screenshot/recording in case it's actually something else.
+- **#6 Unit field → dropdown + custom** — `ProductsPage.tsx`'s free-text Unit input replaced with a
+  `<select>` (Pcs / Bottle / Box / Custom…) that reveals a required text input when Custom… is
+  picked. No product-edit UI exists yet (only Add Product), so there's nothing to pre-fill on edit
+  yet — noted for whenever that gets built.
+- **#7 Pack-size fields reverted to free-typed** — the dropdown-only design from the
+  first batch (bug #2, an explicit user choice at the time) is reversed for `piecesPerStrip`/
+  `stripsPerBox` specifically: both are now plain `<input type="number" min="1">`. The
+  crowd-sourcing benefit stays: live cross-pharmacy suggestions render as tappable chips below each
+  input (e.g. "10 — used by 42 pharmacies") that fill the field on click, rather than being the
+  only way to set a value. `packSize.ts`'s `PACK_SIZE_OPTIONS`/`packSizeDropdownOptions` (only
+  needed to populate a dropdown) removed in favor of a small `sortedSuggestions()` helper.
+- **#8 Auto-generated batch numbers** — `PurchasesService.create()` generates `B-YYMMDD-XXXX`
+  server-side (e.g. `B-260902-K7QX`) when `batchNumber` is left blank, same charset/style as the
+  existing `generatePassword()`/pharmacy-`code` helpers. A manually-typed batch number still passes
+  through unchanged.
+
+**Verified**: both workspaces typecheck/build clean; #4/#6/#7 checked via browser automation
+(including a phone-width screenshot of the whole form); #8 checked via direct API calls (both the
+auto-generated and manually-typed paths). Delivered to the user's local folder, committed, and
+pushed — not yet deployed to the VPS as of this write-up.
+
 ## Next up
 - **Off-server backups** — raised with the user, not yet decided/built (see Phase 6 above).
 - **GitHub token rotation** — a fresh PAT was issued and used for both the local push and the VPS's

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from '../../api/client';
-import { formatStock, packSizeDropdownOptions, type PackSizeSuggestion } from '../../utils/packSize';
+import { formatStock, sortedSuggestions, type PackSizeSuggestion } from '../../utils/packSize';
 
 interface Product {
   id: number;
@@ -27,7 +27,11 @@ export function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState('');
-  const [unit, setUnit] = useState('pcs');
+  // Unit: dropdown of common presets + a "Custom…" choice that reveals a free-text input (bug #6).
+  // unitChoice is 'pcs' | 'bottle' | 'box' | 'custom'; customUnit only matters when it's 'custom'.
+  const [unitChoice, setUnitChoice] = useState('pcs');
+  const [customUnit, setCustomUnit] = useState('');
+  const unit = unitChoice === 'custom' ? customUnit.trim() : unitChoice;
   const [reorderLevel, setReorderLevel] = useState(10);
   const [medicineMasterId, setMedicineMasterId] = useState<number | null>(null);
   const [suggestions, setSuggestions] = useState<MasterHit[]>([]);
@@ -35,9 +39,9 @@ export function ProductsPage() {
   const [saving, setSaving] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Packaging: 1 box = stripsPerBox strips, 1 strip = piecesPerStrip pieces. Dropdown-only, no
-  // typing -- pre-filled with what other pharmacies use for this exact medicine (most-used
-  // first) once one is picked from the catalog, falling back to the generic curated list.
+  // Packaging: 1 box = stripsPerBox strips, 1 strip = piecesPerStrip pieces. Free-typed number
+  // inputs (bug #7); pre-filled with the most-used live cross-pharmacy value once a catalog match
+  // is picked, and every reported value stays available afterward as a tappable suggestion chip.
   const [piecesPerStrip, setPiecesPerStrip] = useState(1);
   const [stripsPerBox, setStripsPerBox] = useState(1);
   const [packSuggestions, setPackSuggestions] = useState<{
@@ -69,7 +73,10 @@ export function ProductsPage() {
   }
 
   async function pickSuggestion(hit: MasterHit) {
-    setName(hit.name);
+    // Include strength in the saved name (bug #4) -- the catalog can hold several strength
+    // variants of the same medicine name (e.g. Napa 500mg vs Napa Extra 665mg), so the bare name
+    // alone isn't enough to tell products apart in the list.
+    setName(hit.strength ? `${hit.name} (${hit.strength})` : hit.name);
     setMedicineMasterId(hit.id);
     setSuggestions([]);
     // Reset to the plain curated list while the real cross-pharmacy data loads, then swap in
@@ -89,6 +96,10 @@ export function ProductsPage() {
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    if (!unit) {
+      setError('Enter a custom unit, or pick one from the list');
+      return;
+    }
     setSaving(true);
     try {
       await api.post('/products', {
@@ -100,7 +111,8 @@ export function ProductsPage() {
         medicineMasterId: medicineMasterId ?? undefined,
       });
       setName('');
-      setUnit('pcs');
+      setUnitChoice('pcs');
+      setCustomUnit('');
       setPiecesPerStrip(1);
       setStripsPerBox(1);
       setPackSuggestions({ piecesPerStrip: [], stripsPerBox: [] });
@@ -171,33 +183,78 @@ export function ProductsPage() {
 
           <div className="form-row">
             <label>Unit</label>
-            <input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="pcs, box, bottle…" />
+            <select value={unitChoice} onChange={(e) => setUnitChoice(e.target.value)}>
+              <option value="pcs">Pcs</option>
+              <option value="bottle">Bottle</option>
+              <option value="box">Box</option>
+              <option value="custom">Custom…</option>
+            </select>
+            {unitChoice === 'custom' && (
+              <input
+                required
+                autoFocus
+                value={customUnit}
+                onChange={(e) => setCustomUnit(e.target.value)}
+                placeholder="e.g. vial, sachet, tube"
+                style={{ marginTop: 6 }}
+              />
+            )}
           </div>
 
           <div className="form-row">
             <label>Pieces per strip</label>
-            <select value={piecesPerStrip} onChange={(e) => setPiecesPerStrip(Number(e.target.value))}>
-              {packSizeDropdownOptions(packSuggestions.piecesPerStrip).map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, marginBottom: 0 }}>
+            <input
+              type="number"
+              min={1}
+              value={piecesPerStrip}
+              onChange={(e) => setPiecesPerStrip(Math.max(1, Number(e.target.value)))}
+              style={{ width: 100 }}
+            />
+            {sortedSuggestions(packSuggestions.piecesPerStrip).length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                {sortedSuggestions(packSuggestions.piecesPerStrip).map((s) => (
+                  <button
+                    key={s.value}
+                    type="button"
+                    className="btn-secondary btn"
+                    onClick={() => setPiecesPerStrip(s.value)}
+                    style={{ padding: '3px 10px', fontSize: 12 }}
+                  >
+                    {s.value} — used by {s.pharmacyCount} pharmac{s.pharmacyCount === 1 ? 'y' : 'ies'}
+                  </button>
+                ))}
+              </div>
+            )}
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6, marginBottom: 0 }}>
               1 if sold loose (syrups, bottles, single vials) — e.g. 10 for a standard tablet strip.
             </p>
           </div>
 
           <div className="form-row">
             <label>Strips per box</label>
-            <select value={stripsPerBox} onChange={(e) => setStripsPerBox(Number(e.target.value))}>
-              {packSizeDropdownOptions(packSuggestions.stripsPerBox).map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, marginBottom: 0 }}>
+            <input
+              type="number"
+              min={1}
+              value={stripsPerBox}
+              onChange={(e) => setStripsPerBox(Math.max(1, Number(e.target.value)))}
+              style={{ width: 100 }}
+            />
+            {sortedSuggestions(packSuggestions.stripsPerBox).length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                {sortedSuggestions(packSuggestions.stripsPerBox).map((s) => (
+                  <button
+                    key={s.value}
+                    type="button"
+                    className="btn-secondary btn"
+                    onClick={() => setStripsPerBox(s.value)}
+                    style={{ padding: '3px 10px', fontSize: 12 }}
+                  >
+                    {s.value} — used by {s.pharmacyCount} pharmac{s.pharmacyCount === 1 ? 'y' : 'ies'}
+                  </button>
+                ))}
+              </div>
+            )}
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6, marginBottom: 0 }}>
               Only matters for stock-in by the box — leave at 1 if you don't buy in cartons.
             </p>
           </div>

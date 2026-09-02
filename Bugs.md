@@ -277,3 +277,131 @@ stock figure).
 
 ---
 
+## 4. 🟢 Product name doesn't include strength — "Napa" instead of "Napa (500mg)"
+
+**Reported:** after adding a product from the catalog search, the Products list shows just "Napa",
+not "Napa (500mg)".
+
+**Root cause:** `medicine_master` stores `name` and `strength` as separate columns (its unique
+index is on `name + strength + manufacturerId`, precisely *because* the same name can have several
+strength variants — e.g. Napa 500mg, Napa Extra 665mg, Napa syrup all share `name = "Napa"`).
+`ProductsPage.tsx`'s `pickSuggestion()` does `setName(hit.name)` — only the bare name, dropping
+`hit.strength` on the floor. The suggestion dropdown itself already shows strength (in the muted
+line under each result), so the data is right there; it just isn't carried into the saved product
+name.
+
+**Fix (not yet applied):** when a catalog suggestion is picked, compose the name as `${hit.name}
+(${hit.strength})` when `strength` is set, else just `hit.name` (some entries — syrups, some
+devices — have no strength value). This only changes what gets pre-filled into the editable name
+field, so the admin can still hand-edit it before saving if they want something different.
+
+**Built & verified:** `pickSuggestion()` now sets the name to `"${hit.name} (${hit.strength})"`
+when a strength is present. Confirmed via browser automation: picking "Napa · 500 mg" from the
+catalog fills the name field with "Napa (500 mg)".
+
+---
+
+## 5. 🔴 Dropdown fade on mobile — opening a `<select>` slightly dims the screen
+
+**Reported:** opening a dropdown on mobile makes the screen fade out slightly.
+
+**Diagnosis (needs confirmation before treating as a real bug):** nothing in this app's CSS dims
+or overlays the page when a `<select>` opens — no backdrop, no opacity transition tied to focus
+(checked `index.css`; the only dimming/backdrop in the app is `.sidebar-backdrop`, which only
+appears behind the mobile nav drawer, unrelated to form dropdowns). A native `<select>` on mobile
+Safari/Chrome opens the OS's own picker UI (an iOS wheel sheet, an Android bottom sheet) and *that
+native picker* dims the page behind it — that's the browser's own chrome, not something a web
+page's CSS controls.
+
+**If that's what's being seen**, it's expected native behavior, not a bug in this app — every
+plain `<select>` on any site does this. **If it looks different from that** (e.g. dimming that
+lingers after closing the dropdown, or shows on a custom in-app dropdown like the medicine-search
+suggestions rather than a native `<select>`), that would be a real, fixable bug — but needs a
+screenshot or screen recording to pin down which dropdown and what exactly happens, since I
+couldn't reproduce anything unusual from the code. Fixing "make it never dim" for a *native*
+`<select>` would mean replacing every plain dropdown in the app with a fully custom-built one (like
+the search-suggestion pattern already used elsewhere) — a real scope increase, only worth doing
+once we know that's actually what's wanted.
+
+**No code change made this round** — there's nothing in this app to fix if it's the native picker
+(every plain `<select>` everywhere does the same thing), and guessing at a different cause without
+being able to reproduce it risks changing something unrelated. Still open pending a screenshot/
+recording, or confirmation that it's just the native picker and not something to chase further.
+
+---
+
+## 6. 🟢 "Unit" field on Add Product should be a dropdown (Pcs/Bottle/Box) with a custom option
+
+**Reported:** the Unit box should be a dropdown with Pcs/Bottle/Box choices, plus the ability to
+type a custom value.
+
+**Confirmed in code** (`ProductsPage.tsx`): `unit` is currently a free-text `<input>` with a
+placeholder hint ("pcs, box, bottle…") — nothing stops typos or inconsistent casing ("Pcs" vs
+"pcs" vs "PCS") across products, which matters since `unit` is just a display label shown next to
+every quantity.
+
+**Fix (not yet applied):** replace the input with a `<select>` — Pcs / Bottle / Box / **Custom…** —
+where picking "Custom…" reveals a text input right below it for anything not in the list (vials,
+tubes, sachets, etc.), same reveal-on-demand pattern as elsewhere in the app. (There's no product
+*edit* UI yet — only Add Product — so the "pre-fill Custom… on edit" concern doesn't apply to
+anything built today; worth remembering if/when an edit form gets built.)
+
+**Built & verified:** `<select>` with Pcs / Bottle / Box / Custom…; picking Custom… reveals a
+required free-text input right below it. Confirmed via browser automation (options list matches,
+input appears and accepts text) and a phone-width (390px) screenshot — full-width, no overlap.
+
+---
+
+## 7. 🟢 "Pieces per strip" / "Strips per box" should be free-typed, not dropdown-only
+
+**Reported:** these two fields shouldn't be dropdowns — the user wants to type the number by hand.
+
+**Context — this reverses part of bug #2's original design.** The dropdown-only rule was the
+user's own explicit call at the time ("I don't want the user will type anything, I want the User
+will select By Dropdown") specifically so a typo couldn't corrupt the shared crowd-sourced
+suggestion data. This new ask supersedes that for these two fields specifically.
+
+**Fix (not yet applied):** swap both `<select>` fields for plain `<input type="number" min="1">`,
+free-typed. To not throw away the crowd-sourcing benefit (bug #2's whole point — most pharmacies
+shouldn't have to know the strip size at all), keep showing the live cross-pharmacy suggestions as
+clickable **chips** below each input instead of as the only way to set the value — e.g. "10 (used
+by 42 pharmacies)" / "8 (used by 3 pharmacies)" as tappable pills that fill the field, alongside
+free typing. Best of both: a pharmacy that already knows a shared value taps it in one touch, and
+nobody is ever blocked from entering an uncommon one by hand. Since it's now a plain number input,
+there's no need for the curated fallback list (1,2,4,5,6,8,10,12,14,15,20,24,25,30,40,50,60,100)
+either — that was only there to populate a dropdown with *something* when no pharmacy had reported
+a value yet; a bare number field doesn't need it.
+
+**Built & verified:** both fields are now `<input type="number" min="1">`, still pre-filled from
+the top live suggestion when a catalog match is picked, with every reported value shown as a
+tappable chip below (e.g. "10 — used by 1 pharmacy") that fills the input on click. Removed
+`PACK_SIZE_OPTIONS`/`packSizeDropdownOptions` from `packSize.ts` (no longer needed) in favor of a
+small `sortedSuggestions()` helper. Confirmed via browser automation: chips render with real
+cross-pharmacy data, tapping one fills the field, and it still renders cleanly at 390px.
+
+---
+
+## 8. 🟢 Purchases: Batch number should auto-generate if left blank
+
+**Reported:** on Add Stock, the batch number should auto-generate if the user doesn't type one.
+
+**Confirmed in code** (`backend/src/purchases/purchases.service.ts`): `batchNumber` is passed
+straight through from the DTO with no fallback — an omitted batch number is just stored as
+`null`/empty.
+
+**Fix (not yet applied):** generate one server-side when `dto.batchNumber` is empty, in
+`PurchasesService.create()` — same idea as the existing `generatePassword()`/pharmacy-`code`
+helpers in `pharmacies.service.ts` (small, self-contained, no new dependency). Proposed format:
+`B-YYMMDD-XXXX` (today's date + a 4-character random suffix from the same ambiguity-free charset
+already used for generated passwords, e.g. `B-260902-K7QX`) — human-scannable on a printed
+label, sorts roughly chronologically, and never collides with a batch number the pharmacy typed by
+hand (their own batch numbers won't happen to start with `B-YYMMDD-` from today unless they copy
+the format themselves, which is fine). The frontend's Purchases form keeps the Batch number field
+optional exactly as it is now — no UI change needed there, just don't force the user to fill it in.
+
+**Built & verified:** `PurchasesService.create()` generates `B-YYMMDD-XXXX` server-side when
+`batchNumber` is blank. Confirmed via direct API calls: an omitted batch number comes back as
+`"B-260902-NMPD"`-style; a manually-supplied one (`"MY-CUSTOM-123"`) passes through unchanged.
+
+---
+
