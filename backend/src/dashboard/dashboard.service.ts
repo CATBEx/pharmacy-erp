@@ -3,6 +3,7 @@ import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module.js';
 import type { Database } from '../db/client.js';
 import { products, purchases, saleAllocations, saleInvoices, sales, supplierPayments, users } from '../db/schema.js';
+import { SalesService } from '../sales/sales.service.js';
 
 function dayStart(d: Date) {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -169,21 +170,25 @@ export class DashboardService {
     return Array.from(byDay.entries()).map(([date, revenue]) => ({ date, revenue: round2(revenue) }));
   }
 
-  recentSales(pharmacyId: number, limit: number) {
-    return this.db
+  // bug #13: attaches the real line items to each invoice (via the same helper SalesService.list
+  // uses), capped by `limit` -- this widget only ever wants the latest few, so it stays its own
+  // simple query rather than picking up search/pagination, which is what the full Sales page is for.
+  async recentSales(pharmacyId: number, limit: number) {
+    const invoices = await this.db
       .select({
         id: saleInvoices.id,
         totalAmount: saleInvoices.totalAmount,
         saleDate: saleInvoices.saleDate,
         salesmanName: users.name,
-        itemCount: sql<number>`count(${sales.id})::int`,
       })
       .from(saleInvoices)
-      .leftJoin(sales, eq(sales.invoiceId, saleInvoices.id))
       .leftJoin(users, eq(users.id, saleInvoices.salesmanUserId))
       .where(eq(saleInvoices.pharmacyId, pharmacyId))
-      .groupBy(saleInvoices.id, users.name)
       .orderBy(desc(saleInvoices.saleDate))
       .limit(limit);
+
+    const itemsByInvoice = await SalesService.fetchItemsFor(this.db, invoices.map((i) => i.id));
+
+    return invoices.map((inv) => ({ ...inv, items: itemsByInvoice.get(inv.id) ?? [] }));
   }
 }

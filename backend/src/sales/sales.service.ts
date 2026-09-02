@@ -1,10 +1,18 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, gt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, ilike, inArray, lt, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module.js';
 import type { Database } from '../db/client.js';
-import { saleInvoices, sales, saleAllocations, purchases, users } from '../db/schema.js';
+import { saleInvoices, sales, saleAllocations, purchases, products, users } from '../db/schema.js';
 import { ProductsService } from '../products/products.service.js';
 import type { CreateSaleDto } from './dto/create-sale.dto.js';
+
+export interface SalesListOptions {
+  limit?: number;
+  offset?: number;
+  search?: string; // matches the salesman's name OR any line item's product name
+  dateFrom?: string; // ISO date, inclusive
+  dateTo?: string; // ISO date, inclusive
+}
 
 @Injectable()
 export class SalesService {
@@ -13,21 +21,89 @@ export class SalesService {
     private readonly productsService: ProductsService,
   ) {}
 
-  async list(pharmacyId: number) {
-    return this.db
+  // Attaches the real line items ({ productName, qty }[]) to a batch of invoice ids in one
+  // extra query, grouped in application code -- bug #13's fix. Shared by list() (paginated
+  // history) and DashboardService.recentSales() (latest-5 widget), same "resolve ids, then
+  // fetch the real rows" shape used throughout this codebase (see architecture-plan.md).
+  static async fetchItemsFor(db: Database, invoiceIds: number[]) {
+    const map = new Map<number, { productName: string; qty: number }[]>();
+    if (invoiceIds.length === 0) return map;
+    const rows = await db
+      .select({ invoiceId: sales.invoiceId, productName: products.name, qty: sales.qty })
+      .from(sales)
+      .innerJoin(products, eq(products.id, sales.productId))
+      .where(inArray(sales.invoiceId, invoiceIds))
+      .orderBy(asc(sales.id));
+    for (const row of rows) {
+      const arr = map.get(row.invoiceId) ?? [];
+      arr.push({ productName: row.productName, qty: row.qty });
+      map.set(row.invoiceId, arr);
+    }
+    return map;
+  }
+
+  // Server-side search + date range + pagination (bug #13) -- unlike Products/Purchases
+  // (a bounded few-hundred-row list, fine to load whole and filter client-side), a pharmacy's
+  // sales history grows one invoice per checkout and can run into the thousands over months, so
+  // this pages on the server and never fetches more than one page of full rows.
+  async list(pharmacyId: number, opts: SalesListOptions = {}) {
+    const limit = opts.limit && opts.limit > 0 ? Math.min(opts.limit, 100) : 20;
+    const offset = opts.offset && opts.offset > 0 ? opts.offset : 0;
+
+    const conditions = [eq(saleInvoices.pharmacyId, pharmacyId)];
+    if (opts.dateFrom) conditions.push(gte(saleInvoices.saleDate, new Date(`${opts.dateFrom}T00:00:00.000Z`)));
+    if (opts.dateTo) conditions.push(lt(saleInvoices.saleDate, new Date(new Date(`${opts.dateTo}T00:00:00.000Z`).getTime() + 24 * 60 * 60 * 1000)));
+
+    const search = opts.search?.trim();
+    if (search) {
+      // Resolve which invoice ids match first (salesman name OR a line item's product name),
+      // then filter the real invoice-list query to those ids -- the same two-step shape as
+      // fetchItemsFor above, not a new pattern.
+      const q = `%${search}%`;
+      const [bySalesman, byProduct] = await Promise.all([
+        this.db
+          .select({ id: saleInvoices.id })
+          .from(saleInvoices)
+          .leftJoin(users, eq(users.id, saleInvoices.salesmanUserId))
+          .where(and(eq(saleInvoices.pharmacyId, pharmacyId), ilike(users.name, q))),
+        this.db
+          .select({ id: sales.invoiceId })
+          .from(sales)
+          .innerJoin(products, eq(products.id, sales.productId))
+          .where(and(eq(sales.pharmacyId, pharmacyId), ilike(products.name, q))),
+      ]);
+      const matchingIds = Array.from(new Set([...bySalesman.map((r) => r.id), ...byProduct.map((r) => r.id)]));
+      if (matchingIds.length === 0) return { items: [], total: 0 };
+      conditions.push(inArray(saleInvoices.id, matchingIds));
+    }
+
+    const where = and(...conditions);
+
+    const [{ count }] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(saleInvoices)
+      .where(where);
+
+    const invoices = await this.db
       .select({
         id: saleInvoices.id,
         totalAmount: saleInvoices.totalAmount,
         saleDate: saleInvoices.saleDate,
         salesmanName: users.name,
-        itemCount: sql<number>`count(${sales.id})::int`,
       })
       .from(saleInvoices)
-      .leftJoin(sales, eq(sales.invoiceId, saleInvoices.id))
       .leftJoin(users, eq(users.id, saleInvoices.salesmanUserId))
-      .where(eq(saleInvoices.pharmacyId, pharmacyId))
-      .groupBy(saleInvoices.id, users.name)
-      .orderBy(desc(saleInvoices.saleDate));
+      .where(where)
+      .orderBy(desc(saleInvoices.saleDate))
+      .limit(limit)
+      .offset(offset);
+
+    const itemsByInvoice = await SalesService.fetchItemsFor(this.db, invoices.map((i) => i.id));
+
+    return {
+      items: invoices.map((inv) => ({ ...inv, items: itemsByInvoice.get(inv.id) ?? [] })),
+      total: count,
+    };
   }
 
   // The whole checkout is one DB transaction: either every line item's stock is

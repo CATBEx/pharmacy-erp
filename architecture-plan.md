@@ -468,6 +468,59 @@ actually matching a product by brand) and 390px screenshots of all three changed
 the user's local folder, committed, and pushed — not yet deployed to the VPS as of this write-up
 (same as the second round above — both rounds are outstanding on the VPS as of now).
 
+## Fourth bug-fix round — done 2026-09-02
+
+Bugs #13 and #14. Both fully designed in Bugs.md before "Implement" was given, per the established
+workflow.
+
+- **#13 Sales history / Recent sales missing item detail, plus expanded scope** — the Dashboard's
+  Recent sales widget and the dedicated Sales page both queried line items only to `count()` them;
+  the actual product/qty data was fetched and discarded before reaching the response. New shared
+  static helper `SalesService.fetchItemsFor(db, invoiceIds)` resolves the real `{ productName, qty
+  }[]` for a batch of invoice ids in one extra query, grouped in application code — used by both
+  `SalesService.list()` and `DashboardService.recentSales()` (a plain cross-service import of the
+  static method, not a Nest DI dependency, so no module wiring needed).
+  - When the user's answer to a scope-clarification question selected all three options (base fix +
+    pagination + search/filter), the dedicated Sales page's `GET /sales` was expanded to
+    **server-side** search/date-range/pagination — deliberately not the client-side "load
+    everything, filter in the browser" pattern used on Products/Purchases, since those pages load a
+    bounded few-hundred-row product list while sales history grows one invoice per checkout and
+    could run into the thousands. `search` matches salesman name OR any line item's product name by
+    resolving matching invoice ids first (two small `ilike` queries, one per join) and then filtering
+    the main paginated query to those ids — same "resolve ids, then fetch real rows" shape as the
+    items-array fix itself, reused rather than a new pattern. Response shape changed from a bare
+    array to `{ items, total }` so the frontend can compute page count.
+  - `SalesHistoryPage.tsx`: debounced search box, From/To date inputs, Prev/Next pagination with a
+    "Page X of Y" indicator (page size 20, matches the backend default). The stale "Full
+    revenue/profit reporting lands in the Phase 5 dashboard" subtitle (leftover from before the
+    dashboard existed) was reworded to point at the Dashboard instead of promising something
+    unbuilt.
+  - `DashboardPage.tsx`'s Recent sales widget shows the first 2 items + "+N more" (a compact
+    glance-view, not the full breakdown) and deliberately got **no** search/pagination — it already
+    only ever asks for the latest 5, so it stays its own simpler query; the full Sales page is where
+    a complete breakdown/search belongs.
+- **#14 Sell (POS): Qty box starts blank** — `CartLine.count` changed from `number` to `string`
+  (same string-typed pattern already used for `saleAmount` and the Purchases form's Box/Strip/Pcs
+  fields), starting `''` instead of `1`. The old `Math.max(1, ...)` on every keystroke didn't just
+  pre-fill a 1, it actively refused to go below 1 — fighting anyone trying to clear the field to
+  type a fresh number. Qty input now just mirrors what's typed, with a greyed `placeholder="0"` so
+  the field still reads clearly when empty; quantity is parsed as `Number(count) || 0` wherever it's
+  used. Switching a line between Strip/Pcs mode also resets its count to blank now (previously reset
+  to `1`), consistent with "the user always types the value." `completeSale()` gained a check
+  alongside the existing missing-price one: blocks checkout with `Enter a quantity for "<product>"`
+  if a line's count is blank/zero, instead of letting it reach the backend as a generic error.
+
+**Verified**: both workspaces typecheck/build clean. Backend checked via direct API calls — search
+by product name, search by salesman name, no-match search, date range in/out of the invoice's
+window, and `limit`/`offset` paging all returned the expected `{ items, total }` shapes. Frontend
+checked via browser automation: Sales history and Dashboard both render real item/qty text ("Napa
+×20") instead of a bare count, the reworded subtitle is live, the search box filters the table, and
+on the Sell page a newly-added cart line's Qty field is confirmed genuinely empty via
+`inputValue()` (not just visually blank) — attempting checkout with a price but no qty is blocked
+with the new error and never reaches the API, while a normal qty+price checkout still completes
+exactly as before. Delivered to the user's local folder, committed, and pushed — not yet deployed to
+the VPS (rounds 2 and 3 remain outstanding on the VPS too, as of this write-up).
+
 ## Next up
 - **Off-server backups** — raised with the user, not yet decided/built (see Phase 6 above).
 - **GitHub token rotation** — a fresh PAT was issued and used for both the local push and the VPS's
@@ -484,9 +537,6 @@ the user's local folder, committed, and pushed — not yet deployed to the VPS a
   can now be reset *for them* by the Super Admin (see "pharmacy details + password regeneration"
   above); the seeded super admin (`admin@pharmacy-erp.local`) still has no reset path at all short
   of editing the DB directly.
-- POS cart table's rightmost columns (Line Total, remove button) require a horizontal swipe on the
-  narrowest phone widths (~390px) — cosmetic, matches an existing app-wide pattern, worth a closer
-  look if it comes up as real user friction.
 
 ---
 _This file mirrors the "architecture-plan.md" doc kept in the attached Claude Project (readable from any Claude session on this project). It's also placed here, at the repo root, so a future agent working directly in this folder — including one without access to the Claude Project — can read the full history and current state without needing that context passed in separately. If the two ever drift, the Claude Project doc is the one actively kept up to date turn-by-turn; re-sync this copy from there periodically._

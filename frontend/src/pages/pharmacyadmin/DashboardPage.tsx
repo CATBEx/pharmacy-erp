@@ -21,12 +21,31 @@ interface TrendPoint {
   revenue: number;
 }
 
+interface RecentSaleItem {
+  productName: string;
+  qty: number;
+}
+
 interface RecentSale {
   id: number;
   totalAmount: string;
   saleDate: string;
   salesmanName: string | null;
-  itemCount: number;
+  items: RecentSaleItem[];
+}
+
+// Capped inline display (bug #13) -- this is a compact glance-view widget, not the full
+// breakdown; the dedicated Sales page (SalesHistoryPage.tsx) shows every item on every invoice.
+function RecentSaleItems({ items }: { items: RecentSaleItem[] }) {
+  if (items.length === 0) return <span style={{ color: 'var(--text-muted)' }}>—</span>;
+  const shown = items.slice(0, 2);
+  const rest = items.length - shown.length;
+  return (
+    <span>
+      {shown.map((it) => `${it.productName} ×${it.qty}`).join(', ')}
+      {rest > 0 && <span style={{ color: 'var(--text-muted)' }}> +{rest} more</span>}
+    </span>
+  );
 }
 
 interface LowStockItem {
@@ -390,7 +409,9 @@ export function DashboardPage() {
                     <tr key={inv.id}>
                       <td>{new Date(inv.saleDate).toLocaleString()}</td>
                       <td>{inv.salesmanName || '—'}</td>
-                      <td>{inv.itemCount}</td>
+                      <td>
+                        <RecentSaleItems items={inv.items} />
+                      </td>
                       <td style={{ fontWeight: 600 }}>{Number(inv.totalAmount).toFixed(2)}</td>
                     </tr>
                   ))}

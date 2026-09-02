@@ -25,7 +25,9 @@ interface CartLine {
   // Piece/Strip only here (not Box) -- a whole box is never sold to a walk-in customer, that
   // level only matters at stock-in (see PurchasesPage).
   unitMode: 'piece' | 'strip';
-  count: number; // amount typed, in unitMode's unit
+  // Bug #14: starts blank ('') so the user has to type a value rather than notice-and-clear a
+  // pre-filled 1 -- same string-typed pattern already used for saleAmount/Box/Strip/Pcs elsewhere.
+  count: string;
   // Total price charged for this line (bug #12), not per-unit -- the backend divides by qty and
   // stores the per-unit sale price for FIFO/profit bookkeeping; this is simply what the customer
   // is being charged for this item, whatever quantity is in the row.
@@ -33,7 +35,8 @@ interface CartLine {
 }
 
 function lineQty(line: CartLine) {
-  return line.unitMode === 'strip' ? line.count * line.piecesPerStrip : line.count;
+  const count = Number(line.count) || 0;
+  return line.unitMode === 'strip' ? count * line.piecesPerStrip : count;
 }
 
 function lineMax(line: CartLine) {
@@ -75,7 +78,7 @@ export function SalesPOS() {
     setCart((prev) => {
       const existing = prev.find((l) => l.productId === p.id);
       if (existing) {
-        return prev.map((l) => (l.productId === p.id ? { ...l, count: l.count + 1 } : l));
+        return prev.map((l) => (l.productId === p.id ? { ...l, count: String((Number(l.count) || 0) + 1) } : l));
       }
       // Default to Strip when the product has one (medicine sells by the strip most of the
       // time -- see architecture-plan.md); products with no strip packaging just sell by piece.
@@ -90,7 +93,7 @@ export function SalesPOS() {
           qtyOnHand: p.qtyOnHand,
           piecesPerStrip: p.piecesPerStrip,
           unitMode,
-          count: 1,
+          count: '',
           saleAmount: '',
         },
       ];
@@ -126,6 +129,11 @@ export function SalesPOS() {
   async function completeSale() {
     setError(null);
     if (cart.length === 0) return;
+    const missingQty = cart.find((l) => !l.count || Number(l.count) <= 0);
+    if (missingQty) {
+      setError(`Enter a quantity for "${missingQty.name}"`);
+      return;
+    }
     const missingPrice = cart.find((l) => !l.saleAmount || Number(l.saleAmount) <= 0);
     if (missingPrice) {
       setError(`Enter a total price for "${missingPrice.name}"`);
@@ -225,7 +233,7 @@ export function SalesPOS() {
                               key={mode}
                               type="button"
                               className="btn-secondary btn"
-                              onClick={() => updateLine(line.productId, { unitMode: mode, count: 1 })}
+                              onClick={() => updateLine(line.productId, { unitMode: mode, count: '' })}
                               style={{
                                 padding: '2px 8px',
                                 fontSize: 11,
@@ -242,8 +250,9 @@ export function SalesPOS() {
                           type="number"
                           min={1}
                           max={lineMax(line)}
+                          placeholder="0"
                           value={line.count}
-                          onChange={(e) => updateLine(line.productId, { count: Math.max(1, Number(e.target.value)) })}
+                          onChange={(e) => updateLine(line.productId, { count: e.target.value })}
                           style={{ width: 70 }}
                         />
                         {line.unitMode === 'strip' && (
@@ -255,8 +264,9 @@ export function SalesPOS() {
                         type="number"
                         min={1}
                         max={line.qtyOnHand}
+                        placeholder="0"
                         value={line.count}
-                        onChange={(e) => updateLine(line.productId, { count: Math.max(1, Number(e.target.value)) })}
+                        onChange={(e) => updateLine(line.productId, { count: e.target.value })}
                         style={{ width: 70 }}
                       />
                     )}

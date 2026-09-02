@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { SalesService } from './sales.service.js';
 import { CreateSaleDto } from './dto/create-sale.dto.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
@@ -19,7 +19,20 @@ export class SalesController {
 
   @Roles('pharmacy_admin', 'manager')
   @Get()
-  list(@CurrentUser() user: AuthUser) {
-    return this.salesService.list(user.pharmacyId!);
+  list(
+    @CurrentUser() user: AuthUser,
+    @Query('search') search?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.salesService.list(user.pharmacyId!, {
+      search,
+      dateFrom,
+      dateTo,
+      limit: limit ? Number(limit) : undefined,
+      offset: offset ? Number(offset) : undefined,
+    });
   }
 }

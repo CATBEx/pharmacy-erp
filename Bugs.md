@@ -551,3 +551,128 @@ previous round). Verified via browser automation and a 390px screenshot.
 
 ---
 
+## 13. 🟢 Sales history / Recent sales don't show which items were sold
+
+**Reported:** the Dashboard's "Recent sales" widget shows Date / Sold by / Items (a count) / Total
+— e.g. "1 | 25.00" — with no way to tell which product that was or how many units. "Do we need to
+update the sell history? Which Item Sold and How Many Unit??"
+
+**Yes, since you asked** — an invoice row that only says "1 item, ৳25" isn't useful for actually
+checking a transaction (a customer dispute, a shift reconciliation, spotting a mis-typed sale). This
+gap exists in two places, both keyed off the same shape of query:
+
+**Confirmed in code:**
+- `SalesService.list()` (powers the dedicated **Sales** history page) and
+  `DashboardService.recentSales()` (powers the Dashboard's **Recent sales** widget, the one in the
+  report) both query `saleInvoices` joined to `sales` **only to count rows**
+  (`count(${sales.id})::int` as `itemCount`) — the actual line items (which product, how many units)
+  are fetched from the DB and then thrown away, never included in the response.
+- `SalesHistoryPage.tsx` and `DashboardPage.tsx` both just render that count in an "Items" column.
+
+**Fix (not yet applied):**
+- Both backend queries: after fetching the invoice list, fetch the matching `sales` rows (joined to
+  `products` for the name) for those invoice ids in one extra query, group them by `invoiceId` in
+  application code, and attach as `items: { productName: string; qty: number }[]` on each invoice —
+  replaces the now-redundant `itemCount` (`items.length` covers that).
+- **Sales history page**: replace the "Items" count column with the actual line items, e.g. "Napa
+  ×20, Ibuprofen ×5" — most checkouts are a handful of items, so inline text is enough; the table
+  already scrolls horizontally (`.table-scroll`) if a cart ever has many.
+- **Dashboard's Recent sales widget**: same idea, but capped (e.g. first 2 items + "+N more") since
+  it's a glance-view widget with limited width, not the full report — clicking through to the full
+  Sales page is where the complete breakdown lives.
+- **Scope note**: shows the raw quantity sold (pieces), not a Box/Strip/Pcs breakdown like the
+  stock-on-hand displays — that would need also loading each product's pack size into this view,
+  which neither page currently does. Happy to add if you want it, but raw units already answers
+  "which item, how many" directly; flagging so it's a deliberate choice, not an oversight.
+
+**Follow-up 2026-09-02**: confirmed this also applies to the dedicated **Sales** history page
+specifically (not just the Dashboard widget) — same "1 | 290.00" gap. Already in scope above
+(`SalesHistoryPage.tsx` is explicitly one of the two places this fix touches); no new root cause,
+just confirms both places matter.
+
+**Also noticed while looking at this page**: its subtitle still reads *"Full revenue/profit
+reporting lands in the Phase 5 dashboard"* — leftover copy from before the dashboard existed. The
+dashboard has been live since Phase 5 (see architecture-plan.md), so this now reads as an unfulfilled
+promise instead of a pointer to something that already exists. Small fix, folding it into this same
+round: reword to something like "Recent checkouts — see the Dashboard for revenue and profit
+reporting," or drop the sentence entirely since the nav already has a Dashboard link.
+
+**Confirmed 2026-09-02**: all three — the base items/qty + subtitle fix, **plus** search/filter,
+**plus** pagination. Since pagination was explicitly asked for (the list "could grow long over
+time"), the search/filter has to be **server-side**, not the client-side "load everything, filter
+in the browser" pattern used on Products/Purchases — those pages load a pharmacy's full product
+list (a few hundred rows, fine to hold in memory); a pharmacy's sales history grows one invoice per
+checkout and could run into the thousands over months, so paging server-side only to then still
+`GET` every invoice for client-side filtering would defeat the point of paging at all.
+
+**Design:**
+- `GET /sales` gains query params: `limit`/`offset` (page size, default 20), `search` (matches
+  salesman name **or** any line item's product name), `dateFrom`/`dateTo` (ISO dates, inclusive).
+  Response becomes `{ items: Invoice[], total: number }` instead of a bare array, so the frontend
+  knows how many pages exist.
+- Matching by product name needs an extra step server-side: first resolve which invoice ids have a
+  matching line item or salesman (a join + `ilike` against `sales`+`products`+`users`, or a plain
+  salesman-name match with no join needed when the search doesn't hit any product), **then** run the
+  existing invoice-list query filtered to those ids plus the date range, with `limit`/`offset` and
+  `count(*) over()` (or a second count query) for `total`. Same "resolve matching ids, then fetch
+  the real rows" two-step shape already used for #13's items enrichment above — reused, not a new
+  pattern.
+- `SalesHistoryPage.tsx`: search box (debounced, re-queries the server — not an in-browser filter)
+  + two date inputs (From/To) + Prev/Next pagination controls with a "Page X of Y" indicator, same
+  page-size (20) as the backend default.
+- **Dashboard's Recent sales widget** is unaffected by this — it's already inherently paginated by
+  virtue of only ever asking for the latest 5, so it keeps its own simpler `recentSales()` query
+  (with the items-array fix from above, but no search/filter/pagination — that's what the full Sales
+  page is for).
+
+**Built & verified:** `SalesService.fetchItemsFor()` (a new static helper, shared by `list()` and
+`DashboardService.recentSales()`) resolves each invoice's real line items in one extra query.
+`GET /sales` now takes `search`/`dateFrom`/`dateTo`/`limit`/`offset` and returns `{ items, total }`
+(search matches invoice ids from a salesman-name join OR a product-name join, then filters the main
+query to those ids — same two-step shape as the items fix). `SalesHistoryPage.tsx` gained a debounced
+search box, From/To date inputs, and Prev/Next pagination with a "Page X of Y" indicator; the stale
+"Phase 5 dashboard" subtitle is reworded. `DashboardPage.tsx`'s Recent sales widget shows the first 2
+items + "+N more", no search/pagination (as designed). Verified end-to-end via the API directly
+(search-by-product, search-by-salesman, no-match, date range in/out of window, pagination pages
+correctly) and via browser automation: both pages render real item/qty text ("Napa ×20") instead of a
+bare count, the subtitle reads correctly, and the search box filters live.
+
+---
+
+## 14. 🟢 Sell (POS): Qty box defaults to 1 — should start blank
+
+**Reported:** the cart's Qty input defaults to 1 when a product is added; should start blank and
+make the user type a value.
+
+**Confirmed in code** (`SalesPOS.tsx`): `addToCart()` sets `count: 1` for a newly-added line, and
+the Qty `<input type="number">` is bound directly to that number with `Math.max(1, ...)` on every
+keystroke — so it's not just a pre-filled 1, the field actively refuses to go below 1, which also
+means it can never be cleared to type a fresh number (e.g. typing "20" by deleting first goes
+through an invalid empty/0 state that immediately snaps back to 1, fighting the input).
+
+**Fix (not yet applied):**
+- `CartLine.count` changes from `number` to `string` (same pattern already used for `saleAmount`,
+  and for Box/Strip/Pcs on the Purchases form) — starts `''` when a product is added, so the field
+  is genuinely blank rather than a 1 the user has to notice and clear.
+- Qty input just mirrors what's typed (no `Math.max` fighting the keystroke); quantity is parsed as
+  `Number(count) || 0` wherever it's used (the pieces conversion, the line's contribution to the
+  cart total).
+- Switching a line between Strip/Pcs mode also resets its count to blank (currently resets to `1`)
+  — consistent with "the user types the value," rather than silently carrying over a number that
+  meant something different in the other unit.
+- `completeSale()` gains a check alongside the existing "missing price" one: block checkout with a
+  clear per-product message ("Enter a quantity for 'X'") if a line's count is blank or zero, instead
+  of letting a 0-qty line reach the backend and come back as a generic error.
+- Adding the *same* product again via search (already in the cart) still increments by 1 as today —
+  just computed as `(Number(current) || 0) + 1` now that count is a string.
+
+**Built & verified:** `CartLine.count` is now a `string`, starts `''`; the Qty input shows a greyed
+placeholder "0" instead of an actual pre-filled value; switching Strip/Pcs resets to blank;
+`completeSale()` blocks with "Enter a quantity for '<product>'" when a line's count is blank/zero.
+Verified via browser automation: adding a product to the cart leaves the Qty field's actual value
+empty (confirmed via `inputValue()`, not just visually), attempting checkout with a price but no
+qty shows the new error and does not hit the API, and a normal sale (qty typed, price typed)
+completes exactly as before.
+
+---
+
