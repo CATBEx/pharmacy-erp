@@ -27,7 +27,7 @@ A multi-tenant SaaS ERP for retail pharmacies, hosted on a VPS, sold as a subscr
 - **Generated password format**: `generatePassword()` in `pharmacies.service.ts` — one continuous 8-character string from an ambiguity-free charset (`ABCDEFGHJKLMNPQRSTUVWXYZ23456789`, no 0/O/1/I/L). Originally formatted `XXXX-XXXX` with a hyphen for phone dictation; user pointed out the hyphen only adds an extra keyboard-switch tap when typing on a phone and doesn't help now that delivery is copy/paste (not dictation) — removed 2026-09-02.
 - **Password delivery is manual in v1**: no email/SMS integration exists. Super Admin relays the generated password to the pharmacy owner themselves (call/WhatsApp/SMS) using the tap-to-copy "Your Credentials" block. Explicitly decided against building automated email/SMS delivery for now — that's real new integration scope (picking a provider, credentials) to revisit later if manual relay becomes a bottleneck.
 - **Billing collection stays manual for now** (bKash/Nagad/bank transfer collected offline, Super Admin flips status in the panel) — user deferred the online-payment-gateway question (SSLCommerz was discussed as the likely BD option, covering bKash/Nagad/cards/bank in one integration) until manual collection is actually painful at higher pharmacy counts.
-- **Known gap, not yet built**: `subscription_expiry` is stored but nothing automatically deactivates a pharmacy once it passes — still a fully manual Super Admin action. Not addressed yet (came up in the subscription discussion but no decision was made to build it).
+- **Auto-expiring activation — done 2026-09-02** (see "Auto-expiring subscriptions" section below): the former gap here (`subscription_expiry` stored but never auto-enforced) is closed. Super Admin picks a duration (1/7/30/90/365 days) when activating; a background job deactivates it automatically once that day arrives. Activating with no duration still works and leaves it active indefinitely (no auto-cutoff) for pharmacies that don't want a timer.
 
 ## Core data model (as built)
 - Pharmacy (tenant): id, name, address, phone, subscription_status, subscription_expiry — `code` (e.g. `PH-0001`) is computed from `id`, not stored
@@ -56,7 +56,7 @@ A multi-tenant SaaS ERP for retail pharmacies, hosted on a VPS, sold as a subscr
 3. ✅ Sales/POS: manager role, invoice+line-item sales model, FIFO checkout, cart-based POS screen — DONE 2026-09-02
 4. ~~Supplier ledger~~ (folded into Phase 2, done early)
 5. ✅ Dashboard: real-time cash flow, inventory value, available stock, daily revenue, daily profit, 7/30-day sales trend — DONE 2026-09-02
-6. VPS deployment — NEXT UP
+6. ✅ VPS deployment — LIVE 2026-09-02 at http://161.97.154.211:8085 (IP only, no domain/SSL yet)
 
 Also done, outside the phase numbering: pharmacy onboarding polish (pharmacy code, generated password, tap-to-copy credential delivery) — see "Subscription & onboarding model" above.
 
@@ -200,38 +200,97 @@ page including the "+ New Pharmacy" form and the tap-to-copy credentials panel o
 screen — all render and stack correctly, no clipped or overlapping content. `tsc -b` clean.
 Delivered to the user's local folder.
 
+## Phase 6 — VPS deployment: LIVE, 2026-09-02
+The app is deployed and serving real traffic at **http://161.97.154.211:8085** (IP only — user chose
+"just use the VPS IP for now" over buying/pointing a domain, so there's no SSL yet; see "Next up").
+
+**Code delivery**: a private GitHub repo, `https://github.com/CATBEx/pharmacy-erp` (user: CATBEx) —
+user chose git over manual transfer specifically to get `git pull` for future updates. Since this
+session has no direct network access to the VPS (or to arbitrary hosts at all — only an allow-listed
+set that happens to include GitHub), the workflow is: commit + push from the device-linked Windows
+folder using a short-lived fine-grained PAT (Contents: Read/write, user generates it in GitHub
+Settings when needed) → the VPS does a plain `git pull` using the same token embedded in its `origin`
+remote URL (`/var/www/pharmacy-erp/.git/config`). **That token expires ~7 days from creation
+(2026-09-02)** — future pulls will fail once it does; regenerate a token (ideally a separate
+longer-lived read-only one dedicated to the VPS) and update the VPS's remote URL when that happens.
+`.gitignore` had a bug fixed as part of this (see "Pharmacy onboarding" section) — `drizzle/meta/`
+was being excluded, which would have broken `drizzle-kit migrate` on a fresh clone; also delivered
+`package-lock.json` and `backend/drizzle/meta/*` to the user's folder, since neither had ever been
+sent before this phase despite existing in the build sandbox.
+
+**VPS layout**:
+- Code: `/var/www/pharmacy-erp` (git working tree, `origin` = the GitHub repo above)
+- Database: `pharmacy_erp` role / `pharmacy_erp_db` database, self-hosted Postgres already on the box
+  — matches the `onebilling`/`paybsc` per-app convention. Migrated + seeded + full 21,264-row medicine
+  catalog imported, all successful on first attempt.
+- Backend: pm2 process `pharmacy-erp-backend`, `node dist/main.js`, **port 4001** (internal only,
+  not firewall-exposed) — originally tried the documented default of 3001, but that was already
+  bound by an unrelated Next.js app on this box (crashed the first `pm2 start` in a ~50-restart loop
+  until caught via `pm2 logs` and fixed by moving to 4001 in `backend/.env` + `pm2 restart --update-env`).
+  Confirmed via `pm2 status` that this box's other 11 pm2 processes — including the crypto/financial
+  ones (`gma-vault1`, `gma-vault3`, `gma-bridge`, etc.) — were never touched.
+- Frontend: static `vite build` output at `/var/www/pharmacy-erp/frontend/dist`, served directly by
+  nginx. `VITE_API_URL=/api` (relative, not `localhost`) so the browser calls same-origin — avoids
+  CORS entirely regardless of IP/domain.
+- nginx: new vhost `/etc/nginx/sites-available/pharmacy-erp` (symlinked into `sites-enabled`),
+  **listening on port 8085** — chosen because the box's existing default vhost already claims
+  `80 default_server`, and 8085 didn't collide with anything in `ss -tlnp` (which is a long list on
+  this box: mail, several other web apps, geth, redis, mariadb, etc.). `location /api/` proxies to
+  `http://127.0.0.1:4001` (no path rewrite — the backend's own Nest global prefix is already `api`,
+  so the URI passes through unchanged); `location /` does SPA fallback (`try_files $uri /index.html`)
+  for React Router. Opened in the firewall with `ufw allow 8085/tcp`.
+- Backups: `/usr/local/bin/pharmacy-erp-backup.sh` (`pg_dump -Fc`, 14-day rotation via `find -mtime`),
+  cron `30 2 * * *`. Confirmed working — first dump ran successfully (337KB). **This is on-server
+  only** (same disk as the DB) — real protection against bad migrations/accidental deletes, but not
+  against the VPS itself failing. True off-server backup (object storage, or periodic copy to the
+  user's Windows folder) was raised with the user and is still an open follow-up, not yet built.
+
+Verified end-to-end on the live deployment (not just in the build sandbox): login, full nav render,
+and — after the auto-expiring-subscriptions feature below — a real activate-for-N-days API call
+against production data.
+
+## Auto-expiring subscriptions — done 2026-09-02
+User request, right after go-live: let the Super Admin activate a pharmacy for a chosen number of
+days (1/7/30/365, etc.) and have it auto-deactivate once that day arrives — this is exactly the gap
+flagged earlier under "Subscription & onboarding model."
+- `UpdateSubscriptionDto` gained an optional `days` field (`@IsInt() @Min(1)`); `expiry` (an exact
+  ISO date) stays as a secondary escape hatch, ignored when `days` is given.
+- `PharmaciesService.updateSubscription`: when `days` is given, computes `subscriptionExpiry =
+  now + days` server-side (never trusts a client-computed date). No `days`/`expiry` given → expiry is
+  cleared (`null`) — lets a pharmacy be activated with no auto-cutoff, same as before this feature.
+- `PharmaciesService.deactivateExpiredSubscriptions()`: new `@Cron(CronExpression.EVERY_10_MINUTES)`
+  job — flips any pharmacy from `active` to `inactive` once `subscription_expiry <= now()`. Added
+  `@nestjs/schedule` as a dependency; `ScheduleModule.forRoot()` registered once in `AppModule`. Runs
+  inside the existing NestJS process (no separate OS-level cron needed) — same pm2 process, same
+  deploy. Deactivation behaves exactly like a manual one: blocks new logins immediately, anyone
+  already logged in keeps working until their token naturally expires (max 8h) — this was already
+  the login-time-only enforcement in `AuthService`, unchanged by this feature.
+- `PharmaciesPage.tsx` (Super Admin): the old single Activate/Deactivate toggle button is now a
+  duration `<select>` (1 day / 7 days / 30 days / 90 days / 1 year) + "Activate" button when a
+  pharmacy isn't active, and a plain "Deactivate" button when it is. New "Expires" column shows the
+  computed date plus a "Xd left" countdown (turns warning-colored at ≤3 days), "—" when there's no
+  expiry set.
+- Verified: typecheck clean on both workspaces; the exact Drizzle query the cron runs was executed
+  directly against the sandbox DB (not just hand-checked SQL) and correctly flipped a backdated test
+  row; browser-tested the full UI flow (pick duration → Activate → expiry+countdown appears in the
+  table). Shipped through the same GitHub → VPS `git pull` → `npm ci` → rebuild → `pm2 restart
+  --update-env` pipeline as the initial deploy, and re-verified live via a real activate-for-1-day API
+  call against the actual production pharmacy (Seba Pharma, PH-0001) — that pharmacy is now really
+  set to auto-deactivate 2026-09-03; flagged to the user to re-activate it for whatever duration they
+  actually want.
+
 ## Next up
-Phase 6: VPS deployment — now unblocked (responsive work above was the explicit blocker). Still need
-from the user before starting:
-- **Domain/subdomain** to host the app under (drives the nginx `server_name` + SSL cert).
-- **How code reaches the VPS** — set up a git repo (recommended: enables `git pull` for future
-  updates) vs. manual transfer (e.g. WinSCP/scp from the Windows machine).
-
-Once started: create a dedicated Postgres role + database (`pharmacy_erp` / `pharmacy_erp_db`,
-matching the `onebilling`/`paybsc` convention already on the VPS — self-hosted Postgres was the
-decision, not a managed/free-tier platform, and not SQLite — see below); never touch/restart any of
-the VPS's existing pm2 processes (especially `gma-vault1`, `gma-vault3`, `gma-bridge` — unrelated
-crypto/financial services already running there); set up automated **off-server** database backups
-as a non-negotiable part of the deployment (no backup solution exists yet, self-hosted or not).
-
-**Hosting/DB decisions already made** (VPS: `root@vmi3381718`, Node v22.23.1/npm 10.9.8, Postgres
-already installed, nginx manages 9 other vhosts, 28GB/72GB disk free, ~5.7GB/7.8GB RAM free, 0B
-swap):
-- Self-hosted Postgres on the VPS, not a managed/free-tier DB platform — zero extra cost, matches the
-  VPS's established per-app role/DB pattern, lower latency than a remote free-tier region, portable
-  later via plain Postgres/Drizzle if ever needed. Real gap: no automated backups exist yet (see above).
-- Postgres over SQLite, firmly — the built FIFO checkout (`sales.service.ts`) depends on
-  `SELECT ... FOR UPDATE` row-level locking inside a transaction to stop two concurrent sales from
-  double-allocating the same stock batch; SQLite only locks the whole database file, not individual
-  rows, so it can't safely provide this guarantee. Also matches the original "shared DB, tenant-isolated
-  rows" multi-tenancy decision from project start.
-
-Also worth raising with the user before go-live:
-- The UTC-day-boundary limitation on the dashboard's "today"/"yesterday" figures (see Phase 5 notes).
-- `subscription_expiry` still isn't auto-enforced (see "Subscription & onboarding model" above) — purely manual today.
-- Online payment collection (SSLCommerz or similar) was discussed but explicitly deferred — billing stays manual for now.
-
-The user has not yet confirmed running any of this locally on their own machine end-to-end (npm install, migrations, seeding, `npm run dev`) — everything so far has been built and verified in the cloud build sandbox's throwaway database, then delivered as source.
+- **Off-server backups** — raised with the user, not yet decided/built (see Phase 6 above).
+- **GitHub token rotation** — the PAT used for the VPS's `git pull` expires ~7 days from 2026-09-02.
+- **SSL/domain** — currently IP+port only (`http://161.97.154.211:8085`, no TLS). User explicitly
+  deferred buying/pointing a domain; revisit nginx `server_name` + certbot once they have one.
+- The UTC-day-boundary limitation on the dashboard's "today"/"yesterday" figures (see Phase 5 notes) —
+  now live in production, so this is no longer a someday-fix; consider `TZ=Asia/Dhaka` on the pm2
+  process or a `pharmacy.timezone` column.
+- Online payment collection (SSLCommerz or similar) was discussed but explicitly deferred — billing
+  stays manual for now (Super Admin activates/deactivates by hand, now with an optional auto-expiry).
+- No "change my password" UI exists yet — the seeded super admin (`admin@pharmacy-erp.local`) and any
+  generated pharmacy-admin password can only be reset by an admin action today, not self-service.
 
 ---
 _This file mirrors the "architecture-plan.md" doc kept in the attached Claude Project (readable from any Claude session on this project). It's also placed here, at the repo root, so a future agent working directly in this folder — including one without access to the Claude Project — can read the full history and current state without needing that context passed in separately. If the two ever drift, the Claude Project doc is the one actively kept up to date turn-by-turn; re-sync this copy from there periodically._
