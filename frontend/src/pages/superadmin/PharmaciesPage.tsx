@@ -25,29 +25,43 @@ interface JustCreated {
 
 const EMPTY_FORM = { pharmacyName: '', address: '', phone: '', adminEmail: '' };
 
-// Common billing cycles. The backend computes the actual expiry timestamp from
-// whichever one is picked (see UpdateSubscriptionDto/PharmaciesService) -- the
-// client never sends a date itself.
-const DURATION_OPTIONS = [
-  { days: 1, label: '1 day' },
-  { days: 7, label: '7 days' },
-  { days: 30, label: '30 days' },
-  { days: 90, label: '90 days' },
-  { days: 365, label: '1 year' },
-];
+// Quick-pick shortcuts for the common cases -- clicking one just fills the day
+// count below, it doesn't submit by itself. The number field is always free-typed,
+// so any custom day count works too, not just these. The backend computes the
+// actual expiry timestamp from that number (see UpdateSubscriptionDto/PharmaciesService)
+// -- the client never sends a date itself.
+const QUICK_DAYS = [1, 7, 30, 90, 365];
 
 function ActivateControl({ onActivate }: { onActivate: (days: number) => void }) {
   const [days, setDays] = useState(30);
   return (
-    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-      <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
-        {DURATION_OPTIONS.map((o) => (
-          <option key={o.days} value={o.days}>
-            {o.label}
-          </option>
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 3 }}>
+        {QUICK_DAYS.map((d) => (
+          <button
+            key={d}
+            type="button"
+            onClick={() => setDays(d)}
+            className="btn-secondary btn"
+            style={{
+              padding: '4px 7px',
+              fontSize: 12,
+              ...(days === d ? { background: 'var(--primary)', color: 'white', borderColor: 'var(--primary)' } : {}),
+            }}
+          >
+            {d}
+          </button>
         ))}
-      </select>
-      <button className="btn-secondary btn" onClick={() => onActivate(days)}>
+      </div>
+      <input
+        type="number"
+        min={1}
+        value={days}
+        onChange={(e) => setDays(Math.max(1, Number(e.target.value) || 1))}
+        style={{ width: 60 }}
+      />
+      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>days</span>
+      <button className="btn" onClick={() => onActivate(days)}>
         Activate
       </button>
     </div>
