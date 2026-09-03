@@ -711,6 +711,47 @@ requires someone with direct database access to update `password_hash` by hand.
 
 Say "Implement" when you want this built (staff-level reset, Super-Admin-level, or both).
 
+**User follow-up 2026-09-03**: "Still the Pharmacy Admin can't view and regenerate staff password,
+or delete account." Two asks — one already covered above, one genuinely new, and one that needs a
+correction before it can be built as literally worded:
+
+- **"Regenerate" staff password** — this is exactly the fix already proposed above. Still not built
+  (nothing under this bug has shipped yet; only the *Super Admin → Pharmacy Admin* regenerate-password
+  flow exists today, from an earlier round). No change to the plan — just confirming it's still the
+  right fix.
+- **"View" staff password — not actually possible, and worth explaining why.** `users.passwordHash`
+  stores a **bcrypt hash**, a one-way function — there is no operation that turns a bcrypt hash back
+  into the plaintext password, by design (that's the entire point of hashing instead of storing
+  passwords directly). `createStaff()` receives the plaintext in the request, hashes it immediately,
+  and never stores or logs the plaintext anywhere, even temporarily — so there is no "the password"
+  sitting in the database to view. The *existing* one-time-reveal pattern (pharmacy creation, Super
+  Admin's regenerate-password) only works because it shows a **freshly generated** password at the
+  moment it's created — that's the only time a plaintext password ever exists in memory, and only
+  once. Practical effect: "view password" and "regenerate password" have to be the same button —
+  there's no way to show the staff member's *current* password on demand, only to issue them a new
+  one. Not a limitation of this app specifically — this is how essentially every properly-built login
+  system works (Super Admin's own account has the exact same property).
+- **"Delete account" — new, not previously scoped.** Confirmed in code: no delete/deactivate endpoint
+  exists for staff at all (`UsersController` only has `list`/`create`); the `active` column already
+  exists on the `users` table but nothing currently writes to it. Proposed as a **deactivate**, not a
+  hard `DELETE FROM users`, for the same reason pharmacy subscriptions are deactivated rather than
+  deleted elsewhere in this app: a salesman/manager's past sales/purchases still reference their
+  `userId` (sales history, "sold by" columns, audit trail) — hard-deleting the row would either orphan
+  that history or require cascading deletes that destroy real transaction records. A deactivated
+  account simply can no longer log in (`AuthService.login()` gains an `active` check alongside the
+  existing password check) but its name still shows correctly on every past sale. `StaffPage.tsx`
+  would show inactive staff greyed out / badged "Inactive" rather than disappearing from the list
+  entirely, with a "Reactivate" action to undo it — mirrors the Super Admin's active/inactive pattern
+  on the Pharmacies list.
+
+**Proposed backend addition**: `POST /users/staff/:id/regenerate-password` (as already planned above)
+plus `PATCH /users/staff/:id` accepting `{ active: boolean }` (pharmacy_admin only, scoped to their
+own `pharmacyId`, same tenant-isolation pattern as `listStaff`). A Pharmacy Admin can't deactivate
+themselves through this route (there's no "staff" row for their own account to target).
+
+Say "Implement" when ready — this folds into the same build as the original regenerate-password fix
+above, since both touch `StaffPage.tsx`'s currently action-less table in one pass.
+
 ---
 
 ## 16. 🟢 Mobile experience feels rough, not "app-grade" / luxurious
@@ -857,6 +898,55 @@ input font-size confirmed `16px` via computed style. At 1440×900 (desktop): the
 normal `<table>`/`<tr>` (`display: table-header-group` / `table-row`, not cards) — confirming zero
 regression on the "desktop is fine as-is" requirement — and the Trust Teal light theme, `--on-primary`
 active-nav-item contrast, and the tooltip token fix all render correctly.
+
+---
+
+## 17. 🔴 "Tap to copy" credentials box shows "Copied ✓" but doesn't actually copy anything
+
+**Reported:** Super Admin's Generate Pharmacy Credentials and Regenerate Password screens — clicking
+the credentials box shows "Copied" but nothing actually lands on the clipboard.
+
+**Confirmed in code** (`frontend/src/pages/superadmin/PharmaciesPage.tsx`, `CredentialsBox.copy()`,
+the shared tap-to-copy component used by both the "pharmacy just created" flow and the "regenerated
+password" flow):
+
+```js
+function copy() {
+  navigator.clipboard?.writeText(text);
+  setCopied(true);
+  setTimeout(() => setCopied(false), 2000);
+}
+```
+
+Three compounding problems in these 5 lines:
+1. **The Clipboard API only exists in a "secure context"** (HTTPS, or `localhost`). The app is
+   deployed at `http://161.97.154.211:8085` — plain HTTP, on a bare IP, not localhost — so
+   `navigator.clipboard` is simply `undefined` there in any standards-compliant browser. This app has
+   no HTTPS yet (flagged previously in architecture-plan.md's "Next up" — no domain/SSL set up).
+2. `navigator.clipboard?.writeText(text)` optional-chains straight past that `undefined`, so the call
+   silently does nothing instead of throwing.
+3. **`setCopied(true)` runs unconditionally**, immediately after, with no `await`, no `.then()`, and
+   no `.catch()` — so the UI shows "Copied ✓" regardless of whether anything was actually written to
+   the clipboard. The success message is disconnected from the actual outcome.
+
+**Fix (not yet applied):**
+- Make `copy()` `async`, `await navigator.clipboard.writeText(text)`, and only call `setCopied(true)`
+  inside a `try` block on success.
+- **Fallback for the no-HTTPS case** (this is the actual production scenario right now, not just an
+  edge case): when `navigator.clipboard` is unavailable or `writeText()` rejects, fall back to the
+  older `document.execCommand('copy')` technique (create a hidden, focused, selected `<textarea>` with
+  the text, run the deprecated-but-still-universally-supported command, remove it) — this one *does*
+  still work over plain HTTP. On success either way, show "Copied ✓"; on failure (both methods
+  unavailable/blocked), show something honest instead, e.g. "Couldn't copy — select and copy manually"
+  so the pharmacy owner/staff member isn't handed a credential that was never actually captured.
+- **Real fix, longer-term**: this app has no TLS yet (see architecture-plan.md's outstanding SSL/domain
+  item) — once that's in place, the Clipboard API works natively with no fallback needed. The
+  `execCommand` fallback above is the right fix for *today's* HTTP deployment either way, and stays
+  harmless/unused once HTTPS is added (the primary `navigator.clipboard` path would just start
+  succeeding instead of falling through).
+
+Say "Implement" when you want this built — small, self-contained, likely bundled with bug #15's staff
+password/delete work above since both touch credential-handling UI.
 
 ---
 
