@@ -103,7 +103,7 @@ export function SalesHistoryPage() {
 
       <div className="card" style={{ padding: 0 }}>
         <div className="table-scroll">
-          <table>
+          <table className="responsive">
             <thead>
               <tr>
                 <th>Date</th>
@@ -115,12 +115,16 @@ export function SalesHistoryPage() {
             <tbody>
               {invoices.map((inv) => (
                 <tr key={inv.id}>
-                  <td style={{ whiteSpace: 'nowrap' }}>{new Date(inv.saleDate).toLocaleString()}</td>
-                  <td>{inv.salesmanName || '—'}</td>
-                  <td>
+                  <td data-label="Date" style={{ whiteSpace: 'nowrap' }}>
+                    {new Date(inv.saleDate).toLocaleString()}
+                  </td>
+                  <td data-label="Sold by">{inv.salesmanName || '—'}</td>
+                  <td data-label="Items">
                     <ItemsCell items={inv.items} />
                   </td>
-                  <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{inv.totalAmount}</td>
+                  <td data-label="Total" style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
+                    {inv.totalAmount}
+                  </td>
                 </tr>
               ))}
               {invoices.length === 0 && (

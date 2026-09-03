@@ -521,7 +521,80 @@ with the new error and never reaches the API, while a normal qty+price checkout 
 exactly as before. Delivered to the user's local folder, committed, and pushed — not yet deployed to
 the VPS (rounds 2 and 3 remain outstanding on the VPS too, as of this write-up).
 
+## Fifth round — mobile "app-grade" redesign (bug #16) — done 2026-09-03
+
+The user's feeling ("mobile isn't smooth and professional, people want luxurious design") wasn't a
+reproduction step, so before proposing anything it was driven live at a 390px phone viewport via
+browser automation, turning up five concrete interaction bugs plus one genuinely subjective design
+gap. The subjective half was handled the same way the Phase 5 dashboard was: a 3-direction color
+mockup on real content (the Sell/POS screen), grounded in retail color-psychology research, published
+for sign-off *before* any component code was touched. The user picked two of the three directions to
+serve as the app's **Light and Dark theme pair** rather than a single choice — Option A "Trust Teal"
+as light, Option B "Midnight Premium" as dark; Option C "Warm Navy & Gold" was dropped. "Implement
+now" then triggered one combined pass (the interaction fixes and the card-layout conversion touch the
+same CSS as the theme system, so they weren't staged separately).
+
+- **Design tokens** (`frontend/src/index.css`): light values on `:root`, dark values on
+  `[data-theme="dark"]` (plus a `prefers-color-scheme: dark` fallback for the instant before
+  JS/localStorage decides). Every token name already used app-wide (`--bg`, `--border`, `--danger`,
+  `--primary`, `--primary-hover`, `--radius`, `--success`, `--surface`, `--text`, `--text-muted`,
+  `--warning` — enumerated via `grep -rohE "var\(--[a-zA-Z0-9-]+" frontend/src` before touching
+  anything) kept its exact name, only its per-theme value changed, so no component needed editing
+  just for the color system to work. New tokens are additive: `--surface-2`, `--primary-tint`,
+  `--danger-tint`, `--shadow-card`, `--shadow-cta`, `--radius-lg`, `--on-primary`, `--tooltip-bg`/
+  `--tooltip-text`, and theme-aware `--badge-*` pairs. `--on-primary` in particular fixed a real
+  bug-in-waiting: six spots across the app (`AppShell.tsx`'s active nav item, `PharmaciesPage.tsx`'s
+  day quick-pick buttons, `SalesPOS.tsx`'s Strip/Pcs toggle, `DashboardPage.tsx`'s tooltip and 7/30-day
+  toggle) hardcoded literal `'white'` text against `var(--primary)`, which would have gone illegible
+  the moment dark mode's `--primary` became a bright mint instead of the old dark teal.
+- **No-flash theme switching**: `frontend/src/theme.ts` (read/write/apply against `localStorage` key
+  `pharmacy-erp-theme`) plus a synchronous inline `<script>` duplicated in `index.html <head>` — it has
+  to run before React mounts and before the stylesheet paints, which a module can't do, so the same
+  read-localStorage-or-fall-back-to-`prefers-color-scheme` logic exists in both places deliberately.
+  A sun/moon toggle button (`frontend/src/components/icons.tsx`'s new `IconSun`/`IconMoon`) sits in
+  both the sidebar header and the mobile topbar.
+- **Tier 1 interaction fixes** (all five from the diagnosis): `input`/`select` font-size 14px→16px
+  (the iOS Safari auto-zoom-on-focus bug is real and deterministic even though it can't be screenshot
+  in Chromium); the hamburger drawer's close problem — the open drawer sat at a higher `z-index` than
+  the topbar, so its own hamburger button was physically covered and non-functional as a toggle,
+  confirmed by a failing Playwright click before the fix — solved with a dedicated close (✕) button
+  rendered *inside* the drawer, shown only below the 900px breakpoint, rather than fighting the
+  stacking order; real `:active` press states (scale/opacity dip) on buttons, nav links, and table
+  rows; the sidebar backdrop now fades its opacity in step with the slide instead of an instant
+  `display` flip; `env(safe-area-inset-*)` padding for notch/home-indicator devices.
+- **Tables → mobile cards**: a pure-CSS `table.responsive` + `data-label="<Column>"` pattern — keeps
+  the existing semantic `<table>` markup everywhere (no bespoke card components to write or maintain
+  per page), and below 640px reflows each row into a stacked label:value card via `display:flex` +
+  `content:attr(data-label)`. Applied to all seven data tables app-wide: Products, Purchases history,
+  Sales history, Staff, Suppliers (main table only — its ledger side-panel already uses flex divs, not
+  a table), Dashboard's Recent sales widget, and Super Admin's Pharmacies list. Desktop is completely
+  unaffected by design — the CSS rule only exists inside the `max-width: 640px` media block, and this
+  was explicitly verified (see below), since the user was clear desktop is fine as-is.
+- **Icons**: new shared `frontend/src/components/icons.tsx` (small stroke-based inline SVGs,
+  `currentColor` by default so they auto-follow theme with no extra wiring) replaced the plain ☰/✕
+  text glyphs app-wide, plus a search icon added to the Sell (POS) search box to match the mockups.
+- **Typography**: Plus Jakarta Sans (headings) + Manrope (body) via Google Fonts, replacing the plain
+  system-font stack, loaded in `index.html`.
+
+**Verified**: `npm run build` (tsc -b + vite build) passes with zero type errors. Browser automation
+at 390×844 confirmed the full loop — theme starts on the OS default with no stored preference, the
+Products table renders as headerless label:value cards with correct `data-label` text resolving via
+`::before`, the hamburger opens the drawer and the new in-drawer close button actually closes it
+(with the backdrop's opacity genuinely animating to `1`, not snapping), the theme toggle switches to
+dark and the choice survives a full page reload, and input font-size computes to exactly `16px`. At
+1440×900 the same tables render as ordinary `<table>`/`<tr>` (`display: table-header-group` /
+`table-row`, confirmed via computed style, not cards) — the explicit no-regression check for "desktop
+is fine as-is." Delivered to the user's local folder, committed, and pushed — not yet deployed to the
+VPS (rounds 2–4 remain outstanding there too, as of this write-up).
+
 ## Next up
+- **VPS deploy** is now four rounds behind `main` (bugs #4 through #16 are all built/pushed but
+  unconfirmed live on http://161.97.154.211:8085) — this has been flagged repeatedly and remains true.
+- **Bug #15** (no password-reset path for salesman/manager staff, or for the Super Admin account) is
+  fully designed in Bugs.md but not yet built — awaiting "Implement."
+- **Bug #5** (mobile dropdown fade) remains open, unreproduced — needs a screenshot/recording from the
+  user before it can be diagnosed further; likely just the native `<select>` picker's own OS chrome,
+  not a bug in the app.
 - **Off-server backups** — raised with the user, not yet decided/built (see Phase 6 above).
 - **GitHub token rotation** — a fresh PAT was issued and used for both the local push and the VPS's
   `origin` remote during this batch's deploy (2026-09-02); it expires ~7 days out same as before —

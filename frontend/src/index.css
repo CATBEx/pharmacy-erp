@@ -1,17 +1,119 @@
+/* ==========================================================================
+   Design tokens (bug #16) -- Light = "Trust Teal", Dark = "Midnight Premium".
+   Every token NAME below already existed and is used throughout the app
+   (--bg, --border, --danger, --primary, --primary-hover, --radius, --success,
+   --surface, --text, --text-muted, --warning) -- only their per-theme VALUES
+   change here, so no component needed touching for the color system to work.
+   New tokens (--surface-2, --primary-tint, --danger-tint, --shadow-card,
+   --shadow-cta, --radius-lg, --on-primary, --tooltip-bg/text, --badge-*,
+   --font-heading/body) are additive.
+
+   Theme switch: `[data-theme="dark"]` is set on <html> by src/theme.ts (and,
+   before first paint, by the inline script in index.html). The plain `:root`
+   block below is the light theme and also the fallback when nothing has
+   decided a theme yet.
+   ========================================================================== */
+
 :root {
-  --bg: #f4f6f8;
+  --bg: #f3f6f5;
   --surface: #ffffff;
-  --border: #e2e6ea;
-  --text: #1f2937;
-  --text-muted: #6b7280;
-  --primary: #0f766e;
-  --primary-hover: #0d5f59;
+  --surface-2: #eaf0ef;
+  --border: #dce5e3;
+  --text: #16231f;
+  --text-muted: #5b6b67;
+  --primary: #0b6e64;
+  --primary-hover: #095850;
+  --primary-tint: #e4f2ef;
+  --on-primary: #ffffff;
   --danger: #dc2626;
+  --danger-tint: #fde8e8;
   --success: #16a34a;
   --warning: #d97706;
+  --tooltip-bg: #16231f;
+  --tooltip-text: #ffffff;
+
+  --badge-active-bg: #dcfce7;
+  --badge-active-text: var(--success);
+  --badge-trial-bg: #fef3c7;
+  --badge-trial-text: var(--warning);
+  --badge-inactive-bg: #fee2e2;
+  --badge-inactive-text: var(--danger);
+
   --radius: 8px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --radius-lg: 16px;
+  --shadow-card: 0 1px 2px rgba(16, 24, 22, 0.06), 0 1px 3px rgba(16, 24, 22, 0.08);
+  --shadow-cta: 0 4px 14px rgba(11, 110, 100, 0.28);
+
+  --font-heading: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-body: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  font-family: var(--font-body);
   color-scheme: light;
+}
+
+[data-theme='dark'] {
+  --bg: #0c0f14;
+  --surface: #151920;
+  --surface-2: #1c222b;
+  --border: #262d38;
+  --text: #f3f5f7;
+  --text-muted: #8b93a1;
+  --primary: #2fd6b8;
+  --primary-hover: #1aa98f;
+  --primary-tint: rgba(47, 214, 184, 0.14);
+  --on-primary: #04231d;
+  --danger: #f87171;
+  --danger-tint: rgba(248, 113, 113, 0.16);
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --tooltip-bg: #f3f5f7;
+  --tooltip-text: #0c0f14;
+
+  --badge-active-bg: rgba(74, 222, 128, 0.16);
+  --badge-active-text: #4ade80;
+  --badge-trial-bg: rgba(251, 191, 36, 0.16);
+  --badge-trial-text: #fbbf24;
+  --badge-inactive-bg: rgba(248, 113, 113, 0.16);
+  --badge-inactive-text: #f87171;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-cta: 0 4px 20px rgba(47, 214, 184, 0.35);
+
+  color-scheme: dark;
+}
+
+/* Only used before JS has had a chance to set data-theme (e.g. a page that
+   somehow renders without the inline head script). Matches system default,
+   never overrides an explicit choice -- theme.ts/index.html already handle
+   that by setting the attribute directly. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']):not([data-theme='dark']) {
+    --bg: #0c0f14;
+    --surface: #151920;
+    --surface-2: #1c222b;
+    --border: #262d38;
+    --text: #f3f5f7;
+    --text-muted: #8b93a1;
+    --primary: #2fd6b8;
+    --primary-hover: #1aa98f;
+    --primary-tint: rgba(47, 214, 184, 0.14);
+    --on-primary: #04231d;
+    --danger: #f87171;
+    --danger-tint: rgba(248, 113, 113, 0.16);
+    --success: #4ade80;
+    --warning: #fbbf24;
+    --tooltip-bg: #f3f5f7;
+    --tooltip-text: #0c0f14;
+    --badge-active-bg: rgba(74, 222, 128, 0.16);
+    --badge-active-text: #4ade80;
+    --badge-trial-bg: rgba(251, 191, 36, 0.16);
+    --badge-trial-text: #fbbf24;
+    --badge-inactive-bg: rgba(248, 113, 113, 0.16);
+    --badge-inactive-text: #f87171;
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.35);
+    --shadow-cta: 0 4px 20px rgba(47, 214, 184, 0.35);
+    color-scheme: dark;
+  }
 }
 
 * {
@@ -22,6 +124,16 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
+  font-family: var(--font-body);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-heading);
+  letter-spacing: -0.01em;
 }
 
 button {
@@ -32,8 +144,11 @@ button {
 input,
 select {
   font-family: inherit;
-  font-size: 14px;
-  padding: 8px 10px;
+  /* 16px, not 14px: any input font-size below 16px makes iOS Safari
+     auto-zoom the whole page on focus, which is a big part of why the app
+     didn't feel "smooth" on a phone. */
+  font-size: 16px;
+  padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
@@ -67,11 +182,20 @@ th {
   letter-spacing: 0.03em;
 }
 
+tbody tr {
+  transition: background-color 0.1s ease;
+}
+
+tbody tr:active {
+  background: var(--surface-2);
+}
+
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 20px;
+  box-shadow: var(--shadow-card);
 }
 
 .btn {
@@ -79,31 +203,46 @@ th {
   align-items: center;
   gap: 6px;
   background: var(--primary);
-  color: white;
+  color: var(--on-primary);
   border: none;
   border-radius: var(--radius);
   padding: 9px 16px;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
+  box-shadow: var(--shadow-cta);
+  transition: background-color 0.12s ease, transform 0.08s ease, box-shadow 0.12s ease;
 }
 
 .btn:hover {
   background: var(--primary-hover);
 }
 
+.btn:active {
+  transform: scale(0.97);
+  box-shadow: none;
+}
+
 .btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
 }
 
 .btn-secondary {
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border);
+  box-shadow: none;
 }
 
 .btn-secondary:hover {
   background: var(--bg);
+}
+
+.btn-secondary:active {
+  transform: scale(0.97);
+  background: var(--surface-2);
 }
 
 .badge {
@@ -115,18 +254,18 @@ th {
 }
 
 .badge-active {
-  background: #dcfce7;
-  color: var(--success);
+  background: var(--badge-active-bg);
+  color: var(--badge-active-text);
 }
 
 .badge-trial {
-  background: #fef3c7;
-  color: var(--warning);
+  background: var(--badge-trial-bg);
+  color: var(--badge-trial-text);
 }
 
 .badge-inactive {
-  background: #fee2e2;
-  color: var(--danger);
+  background: var(--badge-inactive-bg);
+  color: var(--badge-inactive-text);
 }
 
 .error-text {
@@ -147,6 +286,25 @@ th {
   color: var(--text-muted);
 }
 
+/* Theme toggle button (sun/moon) in the topbar/sidebar */
+.theme-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  flex-shrink: 0;
+  transition: background-color 0.12s ease, transform 0.08s ease;
+}
+
+.theme-toggle-btn:active {
+  transform: scale(0.93);
+}
+
 /* ==========================================================================
    Responsive layout
    Structural widths/flex layouts live here as classes (not inline styles)
@@ -155,7 +313,9 @@ th {
    ========================================================================== */
 
 /* Any table can outgrow its column on a phone -- this lets it scroll
-   sideways instead of squeezing text or breaking the page layout. */
+   sideways instead of squeezing text or breaking the page layout. Tables
+   that opt into the .responsive card layout below don't need this, but it's
+   harmless to leave on as a safety net. */
 .table-scroll {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
@@ -177,6 +337,10 @@ th {
   flex-direction: column;
 }
 
+.app-sidebar-close-btn {
+  display: none;
+}
+
 .app-main {
   flex: 1;
   min-width: 0;
@@ -189,6 +353,13 @@ th {
 
 .sidebar-backdrop {
   display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.4);
+  z-index: 100;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
 }
 
 .hamburger-btn {
@@ -202,6 +373,11 @@ th {
   border-radius: var(--radius);
   font-size: 16px;
   flex-shrink: 0;
+  transition: transform 0.08s ease;
+}
+
+.hamburger-btn:active {
+  transform: scale(0.93);
 }
 
 @media (max-width: 900px) {
@@ -214,10 +390,35 @@ th {
     transform: translateX(-100%);
     transition: transform 0.2s ease;
     box-shadow: 2px 0 16px rgba(0, 0, 0, 0.18);
+    padding-top: max(20px, env(safe-area-inset-top));
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
   }
 
   .app-sidebar.open {
     transform: translateX(0);
+  }
+
+  /* The drawer sits above the topbar (z-index 110 vs 60), so its own
+     hamburger button is covered and can't act as a close toggle once the
+     drawer is open. Rather than fight the stacking order, the drawer gets
+     its own close button, shown only in this drawer mode. */
+  .app-sidebar-close-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    align-self: flex-end;
+    width: 36px;
+    height: 36px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 12px;
+    flex-shrink: 0;
+    transition: transform 0.08s ease;
+  }
+
+  .app-sidebar-close-btn:active {
+    transform: scale(0.93);
   }
 
   .app-topbar {
@@ -225,6 +426,7 @@ th {
     align-items: center;
     gap: 12px;
     padding: 12px 16px;
+    padding-top: max(12px, env(safe-area-inset-top));
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     position: sticky;
@@ -234,14 +436,13 @@ th {
 
   .app-main {
     padding: 18px;
+    padding-bottom: max(18px, env(safe-area-inset-bottom));
   }
 
   .sidebar-backdrop.open {
     display: block;
-    position: fixed;
-    inset: 0;
-    background: rgba(15, 23, 42, 0.4);
-    z-index: 100;
+    pointer-events: auto;
+    opacity: 1;
   }
 }
 
@@ -347,5 +548,79 @@ th {
 @media (max-width: 680px) {
   .pos-page {
     max-width: none;
+  }
+}
+
+/* ==========================================================================
+   Responsive tables -> mobile cards
+   Add class="responsive" to a <table> and data-label="<Column>" to every
+   <td> (matching its column header) to turn each row into a stacked
+   label:value card below the phone breakpoint. Desktop is untouched --
+   above 640px these tables render exactly as before.
+   ========================================================================== */
+@media (max-width: 640px) {
+  table.responsive {
+    border: none;
+    width: 100%;
+  }
+
+  table.responsive thead {
+    display: none;
+  }
+
+  table.responsive,
+  table.responsive tbody,
+  table.responsive tr {
+    display: block;
+    width: 100%;
+  }
+
+  table.responsive tr {
+    margin-bottom: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 4px 14px;
+    box-shadow: var(--shadow-card);
+  }
+
+  table.responsive tr:active {
+    background: var(--surface);
+  }
+
+  table.responsive td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    text-align: right;
+    font-size: 14px;
+  }
+
+  table.responsive td:last-child {
+    border-bottom: none;
+  }
+
+  table.responsive td::before {
+    content: attr(data-label);
+    margin-right: auto;
+    text-align: left;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-muted);
+  }
+
+  /* A cell with no meaningful label (e.g. a lone action button column)
+     can opt out of the label prefix with data-label="". */
+  table.responsive td[data-label=''] {
+    justify-content: flex-end;
+  }
+
+  table.responsive td[data-label='']::before {
+    content: none;
   }
 }

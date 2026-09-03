@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../../api/client';
+import { IconClose } from '../../components/icons';
 
 interface Pharmacy {
   id: number;
@@ -73,7 +74,9 @@ function ActivateControl({ onActivate }: { onActivate: (days: number) => void })
             style={{
               padding: '4px 7px',
               fontSize: 12,
-              ...(days === d ? { background: 'var(--primary)', color: 'white', borderColor: 'var(--primary)' } : {}),
+              ...(days === d
+                ? { background: 'var(--primary)', color: 'var(--on-primary)', borderColor: 'var(--primary)' }
+                : {}),
             }}
           >
             {d}
@@ -324,7 +327,7 @@ export function PharmaciesPage() {
       <div className="split-row">
         <div className="split-main card" style={{ padding: 0 }}>
           <div className="table-scroll">
-            <table>
+            <table className="responsive">
               <thead>
                 <tr>
                   <th>Code</th>
@@ -341,12 +344,14 @@ export function PharmaciesPage() {
                   const left = daysLeft(p);
                   return (
                     <tr key={p.id} style={detailsForId === p.id ? { background: 'var(--bg)' } : undefined}>
-                      <td style={{ fontFamily: 'monospace', color: 'var(--text-muted)' }}>{p.code}</td>
-                      <td>{p.name}</td>
-                      <td>
+                      <td data-label="Code" style={{ fontFamily: 'monospace', color: 'var(--text-muted)' }}>
+                        {p.code}
+                      </td>
+                      <td data-label="Name">{p.name}</td>
+                      <td data-label="Status">
                         <span className={`badge ${STATUS_CLASS[p.subscriptionStatus]}`}>{p.subscriptionStatus}</span>
                       </td>
-                      <td>
+                      <td data-label="Expires">
                         {p.subscriptionStatus === 'active' && p.subscriptionExpiry ? (
                           <span style={{ color: left !== null && left <= 3 ? 'var(--warning)' : undefined }}>
                             {new Date(p.subscriptionExpiry).toLocaleDateString()}
@@ -358,8 +363,8 @@ export function PharmaciesPage() {
                           <span style={{ color: 'var(--text-muted)' }}>—</span>
                         )}
                       </td>
-                      <td>{new Date(p.createdAt).toLocaleDateString()}</td>
-                      <td>
+                      <td data-label="Created">{new Date(p.createdAt).toLocaleDateString()}</td>
+                      <td data-label="">
                         {p.subscriptionStatus === 'active' ? (
                           <button className="btn-secondary btn" onClick={() => deactivate(p)}>
                             Deactivate
@@ -368,7 +373,7 @@ export function PharmaciesPage() {
                           <ActivateControl onActivate={(days) => activate(p, days)} />
                         )}
                       </td>
-                      <td>
+                      <td data-label="">
                         <button className="btn-secondary btn" onClick={() => openDetails(p)}>
                           Details
                         </button>
@@ -403,7 +408,7 @@ export function PharmaciesPage() {
                 onClick={closeDetails}
                 aria-label="Close details"
               >
-                ✕
+                <IconClose size={14} />
               </button>
             </div>
 

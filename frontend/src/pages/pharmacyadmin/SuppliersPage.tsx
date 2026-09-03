@@ -98,7 +98,7 @@ export function SuppliersPage() {
       <div className="suppliers-row">
         <div className="card suppliers-table" style={{ padding: 0 }}>
           <div className="table-scroll">
-            <table>
+            <table className="responsive">
               <thead>
                 <tr>
                   <th>Name</th>
@@ -110,12 +110,15 @@ export function SuppliersPage() {
               <tbody>
                 {suppliers.map((s) => (
                   <tr key={s.id}>
-                    <td>{s.name}</td>
-                    <td>{s.contact || '—'}</td>
-                    <td style={{ fontWeight: 600, color: s.balance > 0 ? 'var(--warning)' : 'var(--success)' }}>
+                    <td data-label="Name">{s.name}</td>
+                    <td data-label="Contact">{s.contact || '—'}</td>
+                    <td
+                      data-label="Balance owed"
+                      style={{ fontWeight: 600, color: s.balance > 0 ? 'var(--warning)' : 'var(--success)' }}
+                    >
                       {s.balance.toFixed(2)}
                     </td>
-                    <td>
+                    <td data-label="">
                       <button className="btn-secondary btn" onClick={() => openLedger(s)}>
                         Ledger
                       </button>

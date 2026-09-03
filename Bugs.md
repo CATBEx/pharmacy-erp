@@ -676,3 +676,187 @@ completes exactly as before.
 
 ---
 
+## 15. 🔴 No password reset/recovery path for staff (salesman/manager), or for the Super Admin
+
+**Reported:** "if Staff password will forget??" — what happens when a salesman or manager forgets
+their login password.
+
+**Confirmed in code:** password recovery exists at exactly one level, and nowhere else:
+
+| Role | Who can reset it today | How |
+|---|---|---|
+| Salesman / Manager | **Nobody** — no endpoint exists | none — direct DB edit is the only fix |
+| Pharmacy Admin | Super Admin | `POST /pharmacies/:id/regenerate-password` (built this session, "Super admin: pharmacy details + password regeneration") |
+| Super Admin | Nobody | none — same gap, one level up |
+
+`UsersController`/`UsersService` (`backend/src/users/`) only has `list` and `create` for staff — no
+reset/regenerate route at all. So a Pharmacy Admin, who creates and otherwise fully manages their
+own staff, has no button to press if a salesman or manager forgets their password; today that
+requires someone with direct database access to update `password_hash` by hand.
+
+**Proposed fix (not yet built):**
+- Backend: `POST /users/staff/:id/regenerate-password` (pharmacy_admin only, scoped to their own
+  `pharmacyId` — mirrors the tenant-isolation pattern already used by `listStaff`/`createStaff`) —
+  generates a new password with the same `generatePassword()` helper already used for pharmacy
+  admins, bcrypt-hashes it, overwrites `passwordHash`, returns `{ email, generatedPassword }` once.
+  Same one-time-display contract as the existing Super Admin flow — reused, not a new pattern.
+- Frontend: `StaffPage.tsx` gains a "Reset password" action per staff row, confirms inline (no
+  browser `confirm()` dialog, matching the pharmacy Details panel's pattern), then shows the new
+  password in the same tap-to-copy `CredentialsBox` component already factored out for pharmacy
+  creation/regeneration — a third reuse of that component.
+- **Super Admin's own password** is a separate, smaller gap (only one account, created once by
+  `seed.ts`) — out of scope for this fix unless you want it too; flagging so it doesn't get
+  silently forgotten. Cheapest real fix there would be a `db:seed` re-run path or a one-off CLI
+  script rather than a full UI, since there's exactly one such account per deployment.
+
+Say "Implement" when you want this built (staff-level reset, Super-Admin-level, or both).
+
+---
+
+## 16. 🟢 Mobile experience feels rough, not "app-grade" / luxurious
+
+**Reported:** "The Desktop Version is Okay... But I see the Mobile View isn't Smooth and Professional
+APP Grade... People wants Luxurious and Smooth Design."
+
+This was a feeling, not a specific reproduction step, so before writing anything up I actually drove
+the app at a real phone viewport (390px, iPhone-class) via browser automation and looked at what's
+there — both the rendered screens and the CSS behind them. Found five concrete, fixable interaction
+problems and one bigger, genuinely subjective design gap. Screenshots and a live interaction test
+(not just reading the CSS) back all five.
+
+**Confirmed, concrete problems:**
+
+1. **Data tables don't adapt to mobile at all — they squeeze and wrap instead of laying out cleanly.**
+   The Products page at 390px: "Beximco Pharmaceuticals Ltd." wraps across 3 lines inside its cell,
+   every row balloons to a different, ugly height, columns fight each other for space. `.table-scroll`
+   only adds horizontal *scroll* — it does nothing about a cell's text wrapping before the scrollbar
+   ever kicks in. Every list page (Products, Purchases, Sales history, Staff, Suppliers) uses the same
+   plain `<table>` pattern, so this almost certainly affects all of them, not just Products. This is
+   the single biggest contributor to "not professional" — a real app-grade mobile screen turns each
+   row into a stacked card (label: value pairs) below a breakpoint; it doesn't try to fit a desktop
+   table into a phone.
+2. **Every text input/select is 14px font-size.** iOS Safari auto-zooms the whole page in when you
+   focus any input/select smaller than 16px — so on a real iPhone, tapping *any* field (search boxes,
+   qty, price, batch number, every form) makes the page visibly jump/zoom before you can type. This
+   can't be demonstrated in a Chromium screenshot (WebKit-specific behavior) but it's deterministic
+   and well-documented — and would alone explain a lot of "this doesn't feel smooth."
+3. **The hamburger drawer isn't actually a toggle.** Confirmed by direct interaction, not just reading
+   the CSS: tapping ☰ opens the drawer fine, but tapping the same ☰ spot again to close it does
+   nothing — the open drawer (`z-index: 110`) physically sits on top of the topbar (`z-index: 60`),
+   so the button that's supposed to close it is covered by the thing it's supposed to close. The only
+   way to close it is tapping the dimmed backdrop to the drawer's right, which isn't how a hamburger
+   button is expected to behave (tap to open, tap again to close).
+4. **No tap/press feedback anywhere.** No `:active` state exists on buttons, nav links, or clickable
+   table rows anywhere in `index.css` — a tap does its thing with zero visual acknowledgment in the
+   instant before the result appears, which reads as unresponsive/laggy even when the app is actually
+   fast. Native and well-built web apps almost always dip opacity/scale briefly on press.
+5. **The drawer's backdrop snaps instead of fading.** The drawer itself slides in with a
+   `transition: transform 0.2s ease`, but the dark backdrop behind it is a plain `display: none` →
+   `display: block` — no opacity transition — so open/close reads as two disconnected animations
+   instead of one smooth coordinated one.
+
+**Proposed fix — split into two tiers, since they're very different sizes of work:**
+
+**Tier 1 — CSS/interaction fixes, small and mechanical (a focused pass, no visual redesign needed):**
+- Bump all `input`/`select` font-size to 16px — kills the iOS zoom-jump everywhere at once.
+- Fix the hamburger to actually toggle — raise the topbar/hamburger above the drawer's stacking
+  context (or move the button outside where the drawer can ever cover it) so tapping it always closes
+  what it opened.
+- Add real `:active` press states (a brief scale/opacity dip) to buttons, nav links, and clickable
+  rows app-wide.
+- Fade the backdrop's opacity in step with the drawer's slide, instead of an instant `display` flip.
+- Add `env(safe-area-inset-*)` padding so content doesn't sit under an iPhone's notch/home-indicator.
+
+**Tier 2 — turning tables into mobile-friendly cards, real design work:**
+- Below the existing table breakpoint, each list page's rows render as stacked cards (product name as
+  the card title, other columns as label: value lines) instead of a squeezed table — this is the
+  actual fix for problem #1 above, and it touches every list page, not just Products.
+- The deeper ask — "luxurious," elevation/shadows, a more considered type scale, maybe icons in the
+  nav — is a real visual-design pass, not a bug fix, and "luxurious" means something different to
+  everyone. Mocked up three real-content directions on the actual Sell (POS) screen (color/tone as the
+  only variable) grounded in retail color psychology research — same approach used for the Phase 5
+  dashboard mockup, sign-off before touching component code:
+  https://claude.ai/code/artifact/2220a30b-b0d4-4d8a-96c7-81b62f18880c
+
+**Confirmed 2026-09-03 — direction picked:** use the first two mockup directions together, as the
+app's **Light and Dark modes** — Option A "Trust Teal" as light mode, Option B "Midnight Premium" as
+dark mode. Option C "Warm Navy & Gold" is dropped.
+
+**Design (both tiers now folded into one visual pass, since Tier 1's CSS changes and Tier 2's card
+layout touch the same files):**
+- New CSS design-token layer in `index.css`: light tokens (`:root`) from the Trust Teal mockup —
+  `--bg #F3F6F5`, `--surface #FFFFFF`, `--primary #0B6E64` (deepened from the current `#0f766e`),
+  card shadow instead of flat 1px borders, 20px/14px radius scale. Dark tokens (`[data-theme="dark"]`,
+  and `prefers-color-scheme: dark` when no explicit choice is stored) from the Midnight Premium mockup
+  — `--bg #0C0F14`, `--surface #151920`, `--primary #2FD6B8` (bright mint, the one accent that "pops"
+  against dark per the dark-mode-premium research). Every existing `var(--x)` reference in the app
+  keeps working unchanged — only the token *values* swap per theme, same pattern already used for
+  `--success`/`--danger`/etc.
+- **Theme switching**: defaults to the device's OS-level light/dark setting (`prefers-color-scheme`),
+  with a manual sun/moon toggle (in the sidebar, near the user info/Log out block) that overrides and
+  persists to `localStorage` — the standard modern pattern (Notion/Linear-style), not asked about
+  separately since it's low-risk to adjust later either way.
+- Typography: Plus Jakarta Sans (headings/numbers) + Manrope (body) via Google Fonts, replacing the
+  plain system-font stack — matches the mockups, still 1-2 fonts, not the overused Inter/Roboto/Arial.
+- Tier 1's five fixes ship as part of this same pass: 16px inputs (kills iOS zoom-jump), the hamburger
+  toggle bug fixed, real `:active` press states app-wide, the backdrop fade, safe-area padding.
+- Tier 2's table→card conversion is **mobile-only** (the existing `<=900px`/`<=640px` breakpoints) —
+  you said desktop is fine as-is ("we can see Full View at Once"), so desktop keeps its tables
+  unchanged; only the phone-width layout of Products/Purchases/Sales history/Staff/Suppliers switches
+  to stacked cards.
+- Icons: inline SVG (search, trash/remove, hamburger, qty +/−, checkmark) replacing the current plain
+  text/☰ glyphs, matching the mockups — never emoji.
+
+Say "Implement" whenever you want this built — it's one combined pass (Tier 1 + Tier 2 + the A/B
+theme system), not staged separately, since the interaction fixes and the card layout touch the same
+CSS either way.
+
+**Built & verified 2026-09-03:**
+- **Design tokens** (`frontend/src/index.css`): light theme on `:root` (Trust Teal — `--bg #F3F6F5`,
+  `--surface #FFFFFF`, `--primary #0B6E64`) and dark theme on `[data-theme="dark"]` (Midnight Premium
+  — `--bg #0C0F14`, `--surface #151920`, `--primary #2FD6B8`), with a `prefers-color-scheme: dark`
+  fallback for the split-second before JS/localStorage decides. Every token name the app already used
+  (`--bg`, `--border`, `--danger`, `--primary`, `--primary-hover`, `--radius`, `--success`, `--surface`,
+  `--text`, `--text-muted`, `--warning`) kept working unchanged — no component needed touching for the
+  color system itself. New tokens added: `--surface-2`, `--primary-tint`, `--danger-tint`,
+  `--shadow-card`, `--shadow-cta`, `--radius-lg`, `--on-primary` (replaces every hardcoded `white`/`'white'`
+  that was going to become illegible against dark mode's bright-mint primary — fixed 6 spots across
+  `AppShell.tsx`, `PharmaciesPage.tsx`, `SalesPOS.tsx`, `DashboardPage.tsx`), `--tooltip-bg`/
+  `--tooltip-text` (the Dashboard chart tooltip no longer misuses `var(--text)` as a background), and
+  theme-aware `--badge-*` tokens (replacing hardcoded pastel hex backgrounds that didn't work in dark
+  mode). Plus Jakarta Sans (headings) + Manrope (body) loaded via Google Fonts in `index.html`.
+- **Theme switching**: `frontend/src/theme.ts` (read/write/apply, backed by `localStorage` key
+  `pharmacy-erp-theme`) plus a synchronous inline script in `index.html <head>` that sets `data-theme`
+  on `<html>` before first paint (reads localStorage, falls back to the OS `prefers-color-scheme`) — no
+  flash of the wrong theme on load. Sun/moon toggle button added to both the sidebar header and the
+  mobile topbar (`AppShell.tsx`).
+- **Tier 1 fixes** — all five shipped: `input`/`select` font-size bumped 14px→16px (kills the iOS
+  zoom-jump); hamburger drawer now has its own dedicated close (✕) button rendered *inside* the drawer
+  itself (shown only below the 900px breakpoint) instead of fighting the drawer's higher z-index — the
+  old ☰ button visually covered by the open drawer is no longer the only way to close it; real `:active`
+  press states (scale/opacity dip) added to `.btn`, `.btn-secondary`, the hamburger, the theme toggle,
+  and table rows; the sidebar backdrop now fades its opacity in step with the drawer's slide instead of
+  an instant `display` flip; `env(safe-area-inset-*)` padding added to the sidebar/topbar/main content.
+- **Tier 2 — tables → mobile cards**: a `table.responsive` + `data-label="<Column>"` CSS pattern (pure
+  CSS, no markup rewrite needed beyond the label attributes) that turns each row into a stacked
+  label:value card below 640px, with no change at all above that width. Applied to all seven data
+  tables: Products, Purchases (history), Sales history, Staff, Suppliers (main table only, not the
+  ledger side-panel), Dashboard (Recent sales), and Super Admin's Pharmacies list.
+- **Icons**: new `frontend/src/components/icons.tsx` (inline stroke-based SVGs, `currentColor` by
+  default so they auto-follow the theme) — replaced the plain ☰/✕ text glyphs in `AppShell.tsx`
+  (hamburger + new drawer-close button), the POS cart's ✕ remove-line button, and the Pharmacies
+  details-panel's ✕ close button; added a search icon to the Sell (POS) search box to match the
+  mockups.
+
+**Verified:** `npm run build` (tsc -b + vite build) passes clean with no type errors. Browser
+automation at 390×844 confirmed: theme starts on the OS default and switches/persists across a reload
+via the toggle; the Products table renders as headerless label:value cards (`thead { display: none }`,
+`::before` content resolves to each column name) with no cell-wrapping; the hamburger opens the drawer,
+the new in-drawer ✕ closes it, and the backdrop's opacity is `1` while open (fading, not snapping);
+input font-size confirmed `16px` via computed style. At 1440×900 (desktop): the same tables render as
+normal `<table>`/`<tr>` (`display: table-header-group` / `table-row`, not cards) — confirming zero
+regression on the "desktop is fine as-is" requirement — and the Trust Teal light theme, `--on-primary`
+active-nav-item contrast, and the tooltip token fix all render correctly.
+
+---
+

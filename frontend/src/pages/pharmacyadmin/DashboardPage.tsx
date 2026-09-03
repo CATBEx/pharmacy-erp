@@ -203,17 +203,18 @@ function SalesTrendChart({ points }: { points: TrendPoint[] }) {
               left: `${(xAt(hover) / VB_W) * 100}%`,
               top: `${(yAt(points[hover].revenue) / VB_H) * 100}%`,
               transform: 'translate(-50%, -110%)',
-              background: 'var(--text)',
-              color: 'white',
+              background: 'var(--tooltip-bg)',
+              color: 'var(--tooltip-text)',
               borderRadius: 6,
               padding: '8px 10px',
               fontSize: 12,
               lineHeight: 1.4,
               whiteSpace: 'nowrap',
+              boxShadow: 'var(--shadow-card)',
             }}
           >
             <div style={{ fontSize: 14, fontWeight: 700 }}>{money(points[hover].revenue)}</div>
-            <div style={{ color: '#d1d5db', marginTop: 1 }}>{dateLabel(points[hover].date)}</div>
+            <div style={{ opacity: 0.7, marginTop: 1 }}>{dateLabel(points[hover].date)}</div>
           </div>
         )}
       </div>
@@ -325,7 +326,7 @@ export function DashboardPage() {
                         padding: '6px 14px',
                         cursor: 'pointer',
                         background: range === r ? 'var(--primary)' : 'var(--surface)',
-                        color: range === r ? 'white' : 'var(--text-muted)',
+                        color: range === r ? 'var(--on-primary)' : 'var(--text-muted)',
                       }}
                     >
                       Last {r} days
@@ -395,7 +396,7 @@ export function DashboardPage() {
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Latest checkouts across all salesmen</div>
             </div>
             <div className="table-scroll">
-              <table style={{ marginTop: 8 }}>
+              <table className="responsive" style={{ marginTop: 8 }}>
                 <thead>
                   <tr>
                     <th>Date</th>
@@ -407,12 +408,14 @@ export function DashboardPage() {
                 <tbody>
                   {recentSales.map((inv) => (
                     <tr key={inv.id}>
-                      <td>{new Date(inv.saleDate).toLocaleString()}</td>
-                      <td>{inv.salesmanName || '—'}</td>
-                      <td>
+                      <td data-label="Date">{new Date(inv.saleDate).toLocaleString()}</td>
+                      <td data-label="Sold by">{inv.salesmanName || '—'}</td>
+                      <td data-label="Items">
                         <RecentSaleItems items={inv.items} />
                       </td>
-                      <td style={{ fontWeight: 600 }}>{Number(inv.totalAmount).toFixed(2)}</td>
+                      <td data-label="Total" style={{ fontWeight: 600 }}>
+                        {Number(inv.totalAmount).toFixed(2)}
+                      </td>
                     </tr>
                   ))}
                   {recentSales.length === 0 && (

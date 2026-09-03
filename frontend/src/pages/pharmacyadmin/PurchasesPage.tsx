@@ -273,7 +273,7 @@ export function PurchasesPage() {
 
       <div className="card" style={{ padding: 0 }}>
         <div className="table-scroll">
-          <table>
+          <table className="responsive">
             <thead>
               <tr>
                 <th>Product</th>
@@ -290,13 +290,15 @@ export function PurchasesPage() {
                 const prod = productById(p.productId);
                 return (
                   <tr key={p.id}>
-                    <td>{prod?.name ?? `#${p.productId}`}</td>
-                    <td>{prod?.genericName ?? '—'}</td>
-                    <td>{prod?.manufacturerName ?? '—'}</td>
-                    <td>{prod ? formatStock(p.qty, prod.piecesPerStrip, prod.stripsPerBox, prod.unit) : p.qty}</td>
-                    <td>{p.purchasePrice}</td>
-                    <td>{p.batchNumber || '—'}</td>
-                    <td>{new Date(p.purchaseDate).toLocaleDateString()}</td>
+                    <td data-label="Product">{prod?.name ?? `#${p.productId}`}</td>
+                    <td data-label="Generic">{prod?.genericName ?? '—'}</td>
+                    <td data-label="Manufacturer">{prod?.manufacturerName ?? '—'}</td>
+                    <td data-label="Qty">
+                      {prod ? formatStock(p.qty, prod.piecesPerStrip, prod.stripsPerBox, prod.unit) : p.qty}
+                    </td>
+                    <td data-label="Unit price">{p.purchasePrice}</td>
+                    <td data-label="Batch">{p.batchNumber || '—'}</td>
+                    <td data-label="Date">{new Date(p.purchaseDate).toLocaleDateString()}</td>
                   </tr>
                 );
               })}

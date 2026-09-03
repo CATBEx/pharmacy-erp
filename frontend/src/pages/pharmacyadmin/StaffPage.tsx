@@ -93,7 +93,7 @@ export function StaffPage() {
 
       <div className="card" style={{ padding: 0 }}>
         <div className="table-scroll">
-          <table>
+          <table className="responsive">
             <thead>
               <tr>
                 <th>Name</th>
@@ -105,10 +105,10 @@ export function StaffPage() {
             <tbody>
               {staff.map((s) => (
                 <tr key={s.id}>
-                  <td>{s.name}</td>
-                  <td>{s.email}</td>
-                  <td>{ROLE_LABEL[s.role]}</td>
-                  <td>{new Date(s.createdAt).toLocaleDateString()}</td>
+                  <td data-label="Name">{s.name}</td>
+                  <td data-label="Email">{s.email}</td>
+                  <td data-label="Role">{ROLE_LABEL[s.role]}</td>
+                  <td data-label="Added">{new Date(s.createdAt).toLocaleDateString()}</td>
                 </tr>
               ))}
               {staff.length === 0 && (

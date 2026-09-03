@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
+import { IconMenu, IconClose, IconSun, IconMoon } from '../components/icons';
+import { getEffectiveTheme, setTheme, type Theme } from '../theme';
 
 const NAV_BY_ROLE: Record<string, { to: string; label: string }[]> = {
   super_admin: [{ to: '/', label: 'Pharmacies' }],
@@ -30,6 +32,30 @@ const ROLE_LABEL: Record<string, string> = {
   salesman: 'Salesman',
 };
 
+function ThemeToggle() {
+  // Read once at mount -- theme.ts/index.html's inline script have already
+  // settled data-theme before this component ever renders, so there's no
+  // flash to worry about here, just keeping this button's icon in sync.
+  const [theme, setThemeState] = useState<Theme>(() => getEffectiveTheme());
+
+  function toggle() {
+    const next: Theme = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    setThemeState(next);
+  }
+
+  return (
+    <button
+      className="theme-toggle-btn"
+      onClick={toggle}
+      aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+      title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+    >
+      {theme === 'dark' ? <IconSun size={18} /> : <IconMoon size={18} />}
+    </button>
+  );
+}
+
 export function AppShell() {
   const { user, logout } = useAuth();
   // Below 900px the sidebar becomes an off-canvas drawer (see .app-sidebar in
@@ -44,7 +70,23 @@ export function AppShell() {
       <div className={`sidebar-backdrop ${navOpen ? 'open' : ''}`} onClick={() => setNavOpen(false)} />
 
       <aside className={`app-sidebar ${navOpen ? 'open' : ''}`}>
-        <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 24 }}>Pharmacy ERP</div>
+        {/* The open drawer sits above the topbar, covering its hamburger button,
+            so the drawer needs its own close control -- shown only in that
+            below-900px drawer mode (see .app-sidebar-close-btn in index.css). */}
+        <button className="app-sidebar-close-btn" onClick={() => setNavOpen(false)} aria-label="Close menu">
+          <IconClose size={18} />
+        </button>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: 24,
+          }}
+        >
+          <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 16 }}>Pharmacy ERP</div>
+          <ThemeToggle />
+        </div>
         <nav style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
           {nav.map((item) => (
             <NavLink
@@ -56,7 +98,7 @@ export function AppShell() {
                 padding: '9px 12px',
                 borderRadius: 6,
                 textDecoration: 'none',
-                color: isActive ? 'white' : 'var(--text)',
+                color: isActive ? 'var(--on-primary)' : 'var(--text)',
                 background: isActive ? 'var(--primary)' : 'transparent',
                 fontSize: 14,
                 fontWeight: 500,
@@ -78,9 +120,12 @@ export function AppShell() {
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         <div className="app-topbar">
           <button className="hamburger-btn" onClick={() => setNavOpen((o) => !o)} aria-label="Toggle menu">
-            ☰
+            <IconMenu size={18} />
           </button>
-          <div style={{ fontWeight: 700, fontSize: 15 }}>Pharmacy ERP</div>
+          <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15, flex: 1 }}>
+            Pharmacy ERP
+          </div>
+          <ThemeToggle />
         </div>
         <main className="app-main">
           <Outlet />

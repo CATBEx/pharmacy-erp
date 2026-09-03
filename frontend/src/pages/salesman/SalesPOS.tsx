@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api/client';
 import { formatStock } from '../../utils/packSize';
+import { IconClose, IconSearch } from '../../components/icons';
 
 interface Product {
   id: number;
@@ -160,6 +161,11 @@ export function SalesPOS() {
       <h1 style={{ fontSize: 22, marginBottom: 16 }}>Sell</h1>
 
       <div style={{ position: 'relative', marginBottom: 20 }}>
+        <IconSearch
+          size={16}
+          color="var(--text-muted)"
+          style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}
+        />
         <input
           ref={searchRef}
           value={query}
@@ -167,7 +173,7 @@ export function SalesPOS() {
           onKeyDown={handleSearchKeyDown}
           placeholder="Search a product and press Enter…"
           autoComplete="off"
-          style={{ width: '100%', fontSize: 16, padding: '12px 14px' }}
+          style={{ width: '100%', fontSize: 16, padding: '12px 14px 12px 38px' }}
         />
         {suggestions.length > 0 && (
           <div
@@ -238,7 +244,7 @@ export function SalesPOS() {
                                 padding: '2px 8px',
                                 fontSize: 11,
                                 ...(line.unitMode === mode
-                                  ? { background: 'var(--primary)', color: 'white', borderColor: 'var(--primary)' }
+                                  ? { background: 'var(--primary)', color: 'var(--on-primary)', borderColor: 'var(--primary)' }
                                   : {}),
                               }}
                             >
@@ -286,8 +292,8 @@ export function SalesPOS() {
                     />
                   </td>
                   <td>
-                    <button className="btn-secondary btn" onClick={() => removeLine(line.productId)} style={{ padding: '4px 10px' }}>
-                      ✕
+                    <button className="btn-secondary btn" onClick={() => removeLine(line.productId)} style={{ padding: '4px 10px' }} aria-label="Remove item">
+                      <IconClose size={14} />
                     </button>
                   </td>
                 </tr>

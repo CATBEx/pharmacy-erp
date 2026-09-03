@@ -301,7 +301,7 @@ export function ProductsPage() {
 
       <div className="card" style={{ padding: 0 }}>
         <div className="table-scroll">
-          <table>
+          <table className="responsive">
             <thead>
               <tr>
                 <th>Name</th>
@@ -317,16 +317,19 @@ export function ProductsPage() {
             <tbody>
               {filteredProducts.map((p) => (
                 <tr key={p.id}>
-                  <td>{p.name}</td>
-                  <td>{p.genericName ?? '—'}</td>
-                  <td>{p.manufacturerName ?? '—'}</td>
-                  <td>{p.unit}</td>
-                  <td>{p.piecesPerStrip}</td>
-                  <td>{p.stripsPerBox}</td>
-                  <td style={{ color: p.qtyOnHand <= p.reorderLevel ? 'var(--danger)' : undefined, fontWeight: 600 }}>
+                  <td data-label="Name">{p.name}</td>
+                  <td data-label="Generic">{p.genericName ?? '—'}</td>
+                  <td data-label="Manufacturer">{p.manufacturerName ?? '—'}</td>
+                  <td data-label="Unit">{p.unit}</td>
+                  <td data-label="Pcs/Strip">{p.piecesPerStrip}</td>
+                  <td data-label="Strips/Box">{p.stripsPerBox}</td>
+                  <td
+                    data-label="On hand"
+                    style={{ color: p.qtyOnHand <= p.reorderLevel ? 'var(--danger)' : undefined, fontWeight: 600 }}
+                  >
                     {formatStock(p.qtyOnHand, p.piecesPerStrip, p.stripsPerBox, p.unit)}
                   </td>
-                  <td>{p.reorderLevel}</td>
+                  <td data-label="Reorder level">{p.reorderLevel}</td>
                 </tr>
               ))}
               {filteredProducts.length === 0 && (
