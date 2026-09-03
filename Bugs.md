@@ -984,15 +984,14 @@ pharmacy's revenue.
   invoices, only their own, no matter what's passed in `search`/`dateFrom`/`dateTo`. This is enforced
   server-side (not just hidden in the UI), same "never trust the client" principle used everywhere else
   in this app (e.g. purchase price computed server-side, not client-supplied).
-- Frontend: `AppShell.tsx`'s salesman nav gains a second item — "My Sales" (or similar) — pointing at
-  `/sales-history` (or a lightweight dedicated route/page, TBD at build time — the existing page's
-  search box would need to drop the "search by salesman" half of its placeholder text for a salesman,
-  since it's meaningless when everything shown is already theirs). `App.tsx`'s route guard for
-  `/sales-history` gains `salesman` to its `allow` list.
-- **Open question for you**: should a salesman also be able to search/filter their own history (by
-  product name, date range — same UI already built for admin/manager), or is a plain chronological list
-  enough? Leaning toward keeping the same search/date UI since it's already built and the backend
-  changes are the same either way — just flagging in case you want it stripped down instead.
+- Frontend: `AppShell.tsx`'s salesman nav gains a second item — "My Sales" — pointing at a dedicated,
+  **plain chronological list** (no search box, no date filters) of that salesman's own invoices, still
+  showing each invoice's items/qty/total (same detail bug #13 already added), just without the search/
+  date-range/pagination controls built for the admin/manager version. `App.tsx` gets a new route (kept
+  separate from `/sales-history` rather than reusing that page with a role-conditional UI, since the
+  admin version's search/date/pagination controls don't apply here at all) restricted to `salesman`.
+
+**CONFIRMED by user 2026-09-03: plain list, no search/filter UI.** Locked in, ready to build.
 
 Say "Implement" when you want this built.
 
