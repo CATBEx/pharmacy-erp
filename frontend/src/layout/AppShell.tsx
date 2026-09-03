@@ -22,7 +22,10 @@ const NAV_BY_ROLE: Record<string, { to: string; label: string }[]> = {
     { to: '/suppliers', label: 'Suppliers' },
     { to: '/sales-history', label: 'Sales' },
   ],
-  salesman: [{ to: '/', label: 'Sell' }],
+  salesman: [
+    { to: '/', label: 'Sell' },
+    { to: '/my-sales', label: 'My Sales' },
+  ],
 };
 
 const ROLE_LABEL: Record<string, string> = {

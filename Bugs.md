@@ -676,7 +676,7 @@ completes exactly as before.
 
 ---
 
-## 15. 🔴 No password reset/recovery path for staff (salesman/manager), or for the Super Admin
+## 15. 🟢 No password reset/recovery path for staff (salesman/manager), or for the Super Admin
 
 **Reported:** "if Staff password will forget??" — what happens when a salesman or manager forgets
 their login password.
@@ -751,6 +751,36 @@ themselves through this route (there's no "staff" row for their own account to t
 
 Say "Implement" when ready — this folds into the same build as the original regenerate-password fix
 above, since both touch `StaffPage.tsx`'s currently action-less table in one pass.
+
+**Built & verified 2026-09-03:**
+- `generatePassword()` (previously private to `PharmaciesService`) pulled out to a shared
+  `backend/src/common/utils/generate-password.ts` the moment a second caller needed it.
+- `UsersService.regeneratePassword(pharmacyId, staffId)` and `.setActive(pharmacyId, staffId, active)`
+  — both go through a shared `findOwnStaff()` lookup scoped to `pharmacyId` **and** `role in
+  ('salesman', 'manager')` (the same role filter `listStaff` already used), so this endpoint can never
+  be pointed at another pharmacy's staff, or at a pharmacy_admin/super_admin row — there's no "staff"
+  row for a pharmacy_admin's own account, so they can't lock themselves out through this route either.
+  `POST /users/staff/:id/regenerate-password` and `PATCH /users/staff/:id` (`{ active: boolean }`)
+  added to `UsersController`. Deactivating relies on the login check that already existed
+  (`AuthService.login()` already refused `active: false` — no auth changes needed).
+- **Drive-by fix found while verifying**: `listStaff()` had no `ORDER BY` at all, so Postgres was free
+  to return rows in a different order between requests (harmless while the list was read-only, but
+  once actions on this page started re-fetching after a mutation, it showed up as "the whole staff
+  list randomly reshuffles after every click"). Added `.orderBy(users.name)` for a stable, alphabetical
+  list — not something reported, but directly caused by this same change and would have shipped as a
+  new, confusing bug otherwise.
+- **Frontend**: `StaffPage.tsx` gained a Status column (Active/Inactive badge, row dimmed when
+  inactive) and an actions column — "Reset password" and "Deactivate"/"Reactivate", each confirming
+  inline before the API call (no browser `confirm()` dialog). A successful reset shows the new
+  credentials in the shared `CredentialsBox` (see bug #17) in a dismissible card above the table, same
+  one-time-display pattern used for pharmacy creation/regeneration.
+
+**Verified:** both workspaces build/typecheck clean. Backend checked via direct API calls: regenerating
+a staff password invalidates the old one (401) and the new one logs in successfully; deactivating
+blocks login (401) and reactivating restores it; targeting a non-staff/non-existent id 404s (tenant/role
+scoping holds). Frontend checked via browser automation: the Reset password/Deactivate/Reactivate
+buttons all round-trip correctly with the right badge state after each action, and the staff list order
+is now stable (alphabetical) across reloads instead of shuffling.
 
 ---
 
@@ -901,7 +931,7 @@ active-nav-item contrast, and the tooltip token fix all render correctly.
 
 ---
 
-## 17. 🔴 "Tap to copy" credentials box shows "Copied ✓" but doesn't actually copy anything
+## 17. 🟢 "Tap to copy" credentials box shows "Copied ✓" but doesn't actually copy anything
 
 **Reported:** Super Admin's Generate Pharmacy Credentials and Regenerate Password screens — clicking
 the credentials box shows "Copied" but nothing actually lands on the clipboard.
@@ -948,9 +978,23 @@ Three compounding problems in these 5 lines:
 Say "Implement" when you want this built — small, self-contained, likely bundled with bug #15's staff
 password/delete work above since both touch credential-handling UI.
 
+**Built & verified 2026-09-03:** `CredentialsBox` was pulled out of `PharmaciesPage.tsx` into a shared
+`frontend/src/components/CredentialsBox.tsx` (the moment a second caller — bug #15's staff reset —
+needed the exact same component). Its `copy()` is now `async`: tries `navigator.clipboard.writeText()`
+first when `window.isSecureContext` (works once this app has TLS), and falls back to the
+`document.execCommand('copy')` technique (a temporary off-screen, focused, selected `<textarea>`) when
+that's unavailable or throws — which is what actually runs on today's plain-HTTP deployment. The UI now
+reflects the real outcome: "Copied ✓" only on an actual success, "Couldn't copy — select the text above
+and copy it manually" on failure, instead of always claiming success.
+
+**Verified:** browser automation with clipboard permissions granted confirmed the copied text is
+genuinely on the clipboard (read back via `navigator.clipboard.readText()` and matched exactly), not
+just that the UI claims it — the actual bug (UI lying about the outcome) is what's fixed, not just
+covered up.
+
 ---
 
-## 18. 🔴 Salesman can't see their own sales history — "is it fair?"
+## 18. 🟢 Salesman can't see their own sales history — "is it fair?"
 
 **Reported:** "Sales Page, salesman can't see sales history, is it fair?"
 
@@ -994,6 +1038,25 @@ pharmacy's revenue.
 **CONFIRMED by user 2026-09-03: plain list, no search/filter UI.** Locked in, ready to build.
 
 Say "Implement" when you want this built.
+
+**Built & verified 2026-09-03:**
+- `SalesService.list()` gained an optional `salesmanUserId` filter that, when set, force-adds an
+  `eq(saleInvoices.salesmanUserId, ...)` condition regardless of any other filter — set only by the
+  controller from the verified JWT, never client-suppliable. `SalesController` gained `GET /sales/mine`
+  (`@Roles('salesman')`, separate from the existing `@Roles('pharmacy_admin', 'manager')` on `GET
+  /sales`), calling `list()` with `salesmanUserId: user.sub, limit: 100` — capped, no pagination
+  controls, matching the "plain list" scope.
+- New `frontend/src/pages/salesman/MySalesPage.tsx` — a stripped-down version of `SalesHistoryPage.tsx`
+  with no search box, no date inputs, no pagination, fetching `GET /sales/mine` on mount. `AppShell.tsx`
+  gained a second nav item for `salesman` ("My Sales"); `App.tsx` gained a `salesman`-only guarded route
+  at `/my-sales`, kept separate from `/sales-history` rather than reusing that page conditionally.
+
+**Verified:** backend checked via direct API calls with two different salesman accounts — each only
+ever sees their own invoices via `/sales/mine`, never the other's; `GET /sales` (the full history) still
+403s for a salesman token, confirming the existing lockout stays intact and only the new scoped route
+opened up. Frontend checked via browser automation: the My Sales page renders with no search/date UI
+present, the nav shows the new "My Sales" link, and a salesman navigating directly to `/sales-history`
+is still redirected away (bounced to their own Sell page) — full history stays admin/manager-only.
 
 ---
 

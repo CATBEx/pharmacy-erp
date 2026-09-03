@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../../api/client';
 import { IconClose } from '../../components/icons';
+import { CredentialsBox } from '../../components/CredentialsBox';
 
 interface Pharmacy {
   id: number;
@@ -94,64 +95,6 @@ function ActivateControl({ onActivate }: { onActivate: (days: number) => void })
       <button className="btn" onClick={() => onActivate(days)}>
         Activate
       </button>
-    </div>
-  );
-}
-
-// The "tap the box to copy" credentials block -- used both right after a pharmacy
-// is created and after a super admin regenerates a lost password. Only ever shown
-// once per generated password: only the bcrypt hash survives after this render.
-function CredentialsBox({ email, password }: { email: string; password: string }) {
-  const [copied, setCopied] = useState(false);
-  const text = `Your Credentials\n--------------------------\nEmail: ${email}\nPassword: ${password}`;
-
-  function copy() {
-    navigator.clipboard?.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
-
-  return (
-    <div>
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={copy}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            copy();
-          }
-        }}
-        style={{
-          fontFamily: 'monospace',
-          fontSize: 14,
-          lineHeight: 1.7,
-          whiteSpace: 'pre-wrap',
-          background: 'var(--bg)',
-          border: `1px solid ${copied ? 'var(--success)' : 'var(--border)'}`,
-          borderRadius: 'var(--radius)',
-          padding: '14px 16px',
-          cursor: 'pointer',
-          userSelect: 'none',
-        }}
-      >
-        <div style={{ fontWeight: 700, fontFamily: 'inherit' }}>Your Credentials</div>
-        <div style={{ color: 'var(--text-muted)' }}>--------------------------</div>
-        <div>Email: {email}</div>
-        <div>Password: {password}</div>
-      </div>
-      <div
-        style={{
-          fontSize: 12,
-          color: copied ? 'var(--success)' : 'var(--text-muted)',
-          fontWeight: copied ? 600 : 400,
-          marginTop: 8,
-          textAlign: 'center',
-        }}
-      >
-        {copied ? 'Copied ✓ — paste it into WhatsApp' : 'Tap to copy'}
-      </div>
     </div>
   );
 }

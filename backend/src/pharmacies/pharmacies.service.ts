@@ -2,12 +2,12 @@ import { ConflictException, Inject, Injectable, Logger, NotFoundException } from
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { and, eq, lte } from 'drizzle-orm';
 import * as bcrypt from 'bcryptjs';
-import { randomInt } from 'node:crypto';
 import { DB } from '../db/db.module.js';
 import type { Database } from '../db/client.js';
 import { pharmacies, users } from '../db/schema.js';
 import type { CreatePharmacyDto } from './dto/create-pharmacy.dto.js';
 import type { UpdateSubscriptionDto } from './dto/update-subscription.dto.js';
+import { generatePassword } from '../common/utils/generate-password.js';
 
 // Human-readable pharmacy code (for invoices, support calls, etc). Derived from the
 // row id rather than stored -- same "computed, not stored" principle used for stock
@@ -15,17 +15,6 @@ import type { UpdateSubscriptionDto } from './dto/update-subscription.dto.js';
 // is), and needs no migration or uniqueness check of its own.
 function pharmacyCode(id: number) {
   return `PH-${String(id).padStart(4, '0')}`;
-}
-
-// Generates the new admin's login password -- the super admin never types one in.
-// Charset drops visually-ambiguous characters (0/O, 1/I/L). One continuous 8-char
-// string, no separator -- it's relayed by copy/paste (the "Your Credentials" tap-to-copy
-// block), not dictated, so a hyphen would only add an extra keyboard-switch tap when
-// someone has to type it in by hand. Only ever shown once, in the create-pharmacy
-// response -- it's stored solely as a bcrypt hash after that, exactly like a normal password.
-const PASSWORD_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-function generatePassword() {
-  return Array.from({ length: 8 }, () => PASSWORD_CHARS[randomInt(PASSWORD_CHARS.length)]).join('');
 }
 
 @Injectable()

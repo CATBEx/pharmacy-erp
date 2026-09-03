@@ -12,6 +12,11 @@ export interface SalesListOptions {
   search?: string; // matches the salesman's name OR any line item's product name
   dateFrom?: string; // ISO date, inclusive
   dateTo?: string; // ISO date, inclusive
+  // Bug #18: force-scopes the query to one salesman's own invoices, regardless of any
+  // other filter. Set by the controller from the verified JWT (never client-supplied)
+  // for the /sales/mine route -- this is what stops a salesman from ever seeing anyone
+  // else's sales, even by hand-crafting a request.
+  salesmanUserId?: number;
 }
 
 @Injectable()
@@ -51,6 +56,7 @@ export class SalesService {
     const offset = opts.offset && opts.offset > 0 ? opts.offset : 0;
 
     const conditions = [eq(saleInvoices.pharmacyId, pharmacyId)];
+    if (opts.salesmanUserId) conditions.push(eq(saleInvoices.salesmanUserId, opts.salesmanUserId));
     if (opts.dateFrom) conditions.push(gte(saleInvoices.saleDate, new Date(`${opts.dateFrom}T00:00:00.000Z`)));
     if (opts.dateTo) conditions.push(lt(saleInvoices.saleDate, new Date(new Date(`${opts.dateTo}T00:00:00.000Z`).getTime() + 24 * 60 * 60 * 1000)));
 

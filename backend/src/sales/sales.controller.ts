@@ -35,4 +35,14 @@ export class SalesController {
       offset: offset ? Number(offset) : undefined,
     });
   }
+
+  // Bug #18: a salesman's own sales, plain list -- no search/date/pagination controls
+  // (confirmed with the user), and always force-scoped to their own invoices via
+  // salesmanUserId (from the verified JWT, never client-supplied) so they can never see
+  // anyone else's sales, or the pharmacy's totals, through this route.
+  @Roles('salesman')
+  @Get('mine')
+  mine(@CurrentUser() user: AuthUser) {
+    return this.salesService.list(user.pharmacyId!, { salesmanUserId: user.sub, limit: 100 });
+  }
 }

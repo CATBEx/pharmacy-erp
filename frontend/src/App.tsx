@@ -11,6 +11,7 @@ import { PurchasesPage } from './pages/pharmacyadmin/PurchasesPage';
 import { SuppliersPage } from './pages/pharmacyadmin/SuppliersPage';
 import { SalesHistoryPage } from './pages/pharmacyadmin/SalesHistoryPage';
 import { SalesPOS } from './pages/salesman/SalesPOS';
+import { MySalesPage } from './pages/salesman/MySalesPage';
 
 function RoleHome() {
   const { user } = useAuth();
@@ -44,6 +45,10 @@ export default function App() {
 
               <Route element={<ProtectedRoute allow={['pharmacy_admin', 'salesman']} />}>
                 <Route path="/sell" element={<SalesPOS />} />
+              </Route>
+
+              <Route element={<ProtectedRoute allow={['salesman']} />}>
+                <Route path="/my-sales" element={<MySalesPage />} />
               </Route>
             </Route>
           </Route>
