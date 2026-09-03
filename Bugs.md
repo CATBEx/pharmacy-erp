@@ -950,3 +950,51 @@ password/delete work above since both touch credential-handling UI.
 
 ---
 
+## 18. 🔴 Salesman can't see their own sales history — "is it fair?"
+
+**Reported:** "Sales Page, salesman can't see sales history, is it fair?"
+
+**Confirmed in code — this is deliberate, not an oversight, but it's worth re-examining:**
+- Backend: `GET /sales` (`backend/src/sales/sales.controller.ts` line 20) is `@Roles('pharmacy_admin',
+  'manager')` — `salesman` is not in the list at all, so even a direct API call from a logged-in
+  salesman is rejected by the role guard before it reaches `SalesService.list()`.
+- Frontend: `/sales-history`'s route (`App.tsx` line 38) is wrapped in the same
+  `ProtectedRoute allow={['pharmacy_admin', 'manager']}`, and `AppShell.tsx`'s nav map for `salesman`
+  only lists one item — Sell (`{ to: '/', label: 'Sell' }`) — so there's no link to it anywhere in
+  their UI either. A salesman is completely locked out, not even of their own transactions.
+
+**Was this intentional?** Partly — the existing pattern elsewhere in the app is "salesman sells only,
+never sees cost/profit" (see the comment in `sales.controller.ts` restricting checkout access, and the
+Staff-add form's own role description: *"Salesman — sells only, never sees cost/profit"*). But the
+current `list()` endpoint returns **every** salesman's invoices pharmacy-wide with no per-user
+filtering at all — so simply adding `salesman` to the `@Roles(...)` list as-is would let a salesman see
+every other salesman's sales too (and by extension, a rough sense of the pharmacy's total daily
+revenue by summing invoice totals) — that's a real overreach, not what "is it fair" is asking for.
+
+**What seems fair, and matches what a salesman already sees at checkout anyway:** a salesman typing a
+sale's price and completing it already sees that invoice's total (they typed it) — there's no *new*
+information exposure in letting them look back at **their own** past invoices specifically; what's
+missing is a way to review/reprint/double-check what they personally sold, not a window into the whole
+pharmacy's revenue.
+
+**Proposed fix (not yet applied) — scope to "my sales", not full history:**
+- Backend: add `salesman` to `GET /sales`'s allowed roles, but when the caller's role is `salesman`,
+  force an additional `eq(saleInvoices.salesmanUserId, user.sub)` condition inside `SalesService.list()`
+  regardless of any other filter — so a salesman can never see or search across other salesmen's
+  invoices, only their own, no matter what's passed in `search`/`dateFrom`/`dateTo`. This is enforced
+  server-side (not just hidden in the UI), same "never trust the client" principle used everywhere else
+  in this app (e.g. purchase price computed server-side, not client-supplied).
+- Frontend: `AppShell.tsx`'s salesman nav gains a second item — "My Sales" (or similar) — pointing at
+  `/sales-history` (or a lightweight dedicated route/page, TBD at build time — the existing page's
+  search box would need to drop the "search by salesman" half of its placeholder text for a salesman,
+  since it's meaningless when everything shown is already theirs). `App.tsx`'s route guard for
+  `/sales-history` gains `salesman` to its `allow` list.
+- **Open question for you**: should a salesman also be able to search/filter their own history (by
+  product name, date range — same UI already built for admin/manager), or is a plain chronological list
+  enough? Leaning toward keeping the same search/date UI since it's already built and the backend
+  changes are the same either way — just flagging in case you want it stripped down instead.
+
+Say "Implement" when you want this built.
+
+---
+
